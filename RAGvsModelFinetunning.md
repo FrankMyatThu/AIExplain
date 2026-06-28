@@ -1,4 +1,5 @@
-During these day, whenever we explore about AI, RAG (retrieval augmented generation) are also becoming popular topic.
+During these day, 
+whenever we explore about AI, RAG (retrieval augmented generation) are also becoming popular topic.
 
 So we need to know why we need RAG and what is limit of the RAG if we cannot use correctly.
 
@@ -9,13 +10,38 @@ or your specific industrial deep knowledge. Then LLM have limit. they cannot kno
 
 so  you  want to let AI analyze also your company data, then how ?
 
-So, you need RAG 
-1. you  do embedding process and get the vectorimize  data
-2. your  question will also need to do embedding and vectorimize
+So, you need to use RAG 
 
-so what is the vectorization, it mean you convert your data into structured numerical format.
+  1. you use one of the embedding llm model to convert your natural language data to numerical data 
+     so that machine learning techniques can find the nearest neighbour.
 
- 
+---------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 
- 
- 
+Let's think you have laptop information, 
+    eg. Dell laptop, HP Laptop, Apple Laptop
+
+but your customer want to search notebook , 
+    then in traditional software it cannot retrieve your laptop information.
+    because customer type notebook, but your stored data is laptop.
+
+    or Doctor or Physician
+    or illness or disease
+    or flight or aviation
+    or car or automobile
+    or apartment or flat
+
+but you want to let your system auto know that notebook and laptop are semantically similar 
+and let it retrieve laptop information to customer.
+
+So, you need to use RAG to retrieve the correct information.
+
+RAG can also help you to answer questions that are not in your data, but are related to your data.
+     For example, if your customer asks "What is the best notebook for gaming?", 
+     RAG can retrieve relevant information (laptop) from your data and generate an answer based on that.
+
+So, the question is how RAG know it?
+
+RAG always finding how much far or near your customer query data and your data.
+Meaning RAG always calculate the distance in a high-dimensional vector space to get the nearest value.
+
