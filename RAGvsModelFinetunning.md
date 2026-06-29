@@ -25,6 +25,8 @@ but your customer want to search notebook ,
     then in traditional software it cannot retrieve your laptop information.
     because customer type notebook, but your stored data is laptop.
 
+This technique is known as keyword search.
+
     or Doctor or Physician
     or illness or disease
     or flight or aviation
