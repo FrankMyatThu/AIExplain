@@ -47,3 +47,9 @@ So, the question is how RAG know it?
 RAG always finding how much far or near your customer query data and your data.
 Meaning RAG always calculate the distance in a high-dimensional vector space to get the nearest value.
 
+---------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
+
+Keyword search > Semantic Search > RAG > LLM;
+
+
