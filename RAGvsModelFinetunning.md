@@ -54,5 +54,11 @@ Keyword search > Semantic Search > RAG > LLM;
 
 loss functions > how wrong it is
 
+backpropagation
+
+does my project ml model (training or inferencing) is using Euclidean distance ? because i am using triplets loss.
+
+
+
 
 
