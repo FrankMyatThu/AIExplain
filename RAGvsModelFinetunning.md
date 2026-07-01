@@ -52,4 +52,7 @@ Meaning RAG always calculate the distance in a high-dimensional vector space to 
 
 Keyword search > Semantic Search > RAG > LLM;
 
+loss functions > how wrong it is
+
+
 
