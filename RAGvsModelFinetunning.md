@@ -64,7 +64,9 @@ which similarities is used cosine vs Euclidean in below steps
 
 1. ml model training 
 2. ml model inferencing 
-3. after coming back from sage maker, ml model generated embedding objects comparisons 
+3. after coming back from sage maker, ml model generated embedding objects comparisons
+
+What is Euclidean/L2 distance vs consine distance ?
 
 
 
