@@ -56,9 +56,15 @@ loss functions > how wrong it is
 
 backpropagation
 
+A.
 does my project ml model (training or inferencing) is using Euclidean distance ? because i am using triplets loss.
 
+B.
+which similarities is used cosine vs Euclidean in below steps
 
+1. ml model training 
+2. ml model inferencing 
+3. after coming back from sage maker, ml model generated embedding objects comparisons 
 
 
 
