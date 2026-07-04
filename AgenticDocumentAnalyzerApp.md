@@ -20,7 +20,8 @@ In real documents, the whole page can be different:
 * Some suppliers use one clean table.
 * Some split the same information into multiple tables.
 * Some use short column names with footer legends.
-* Some use direct decimal values, while others use integer values with a header legend that defines the exponent.
+* Some write values like 0.0025 directly.
+* Some write 25 and include a note in the table header saying "×10⁻⁴".
 * Some put important values in the header, footer, barcode, or notes area.
 * Some continue the table across multiple pages.
 * Some mix structured tables with free-text instructions.
