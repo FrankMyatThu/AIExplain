@@ -1,26 +1,45 @@
 #### How I Built an Agentic Document Analyzer App
 --------------------------------------------------
 
-Let's say you want to read/analyze 
-    - Purchase Orders or
-    - Supplier Invoices or
-    - Shipping Documents or
-    - Bank Statements or 
-    - Medical Reports
+Let's say you want to read/analyze:
 
-But if they are coming from different suppliers or different banks from different countries,
-then those documents are 90% inconsistent format/layout. 
-But you don't want to manually read them, you want to let AI system to analyze them.
-Then you may think you will use most popular LLM like ChatGPT, Gemini or Claude or whatever.
+* Purchase Orders
+* Supplier Invoices
+* Shipping Documents
+* Bank Statements
+* Medical Reports
 
-But the problems are 
+But if they are coming from different suppliers or different banks in different countries,
+then those documents will have 90% inconsistent formats/layouts.
 
-1. They are not trained AI for your specific business requirement.
-    Meaning they cannot know 100% about your industrial knowledge.
-    So if you let them analyze those documents, the result cannot be accurate no matter how good/perfect your prompt it is.
-    Because from 1 supplier to another supplier may have different layout/ different technical terms, different labels , different data presentation layout.
-    
-2. 
+In real documents, the whole page can be different:
+
+* Some suppliers use different labels,
+  such as "Invoice No.", "Inv #", or "Reference No."
+  or "PO Number", "PO No.", "Order Ref", "Order ID", or "Purchase Order".
+* Some suppliers use one clean table.
+* Some split the same information into multiple tables.
+* Some use short column names with footer legends.
+* Some use direct decimal values, while others use integer values with a header legend that defines the exponent.
+* Some put important values in the header, footer, barcode, or notes area.
+* Some continue the table across multiple pages.
+* Some mix structured tables with free-text instructions.
+
+So even when the business meaning is the same, the document layout, terminology, and data presentation can be very different.
+
+That is why a normal prompt is usually not enough for production use.
+We need a document AI pipeline that can extract, normalize, map, and verify the information consistently.
+
+But you don't want to manually read them; you want to let an AI system analyze them.
+Then you may think you can use the most popular LLMs, such as ChatGPT, Gemini, Claude, or whatever.
+
+But the problems are:
+
+1. They are not trained specifically for your business requirements.
+   This means they cannot know 100% of your industry-specific knowledge.
+   So if you let them analyze those documents, the results cannot be fully accurate, no matter how good or perfect your prompt is.
+   Because from one supplier to another, the document layout, technical terms, labels, and data presentation can all be different.
+
 
 
 
