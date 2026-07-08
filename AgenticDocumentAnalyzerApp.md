@@ -247,3 +247,5 @@ The one thing this stage *does* resolve is explicit scaling. Because Supplier A'
 Without this normalization step, the remaining pipeline becomes much harder. The embedding model, mapping rules, and verifier would all need to understand every possible document layout. By converting all extracted content into a predictable intermediate JSON first, the later stages can focus on semantic meaning instead of layout confusion.
 
 ## 3. Semantic Matching Layer
+
+We now have clean JSON, but the field names are still supplier-specific. One document says "Invoice No.", another says "Ref #", and a third says "Document ID". We still don't know which standardized field each belongs to. This is the problem the Semantic Matching Layer solves.
