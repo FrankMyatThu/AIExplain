@@ -24,34 +24,46 @@ However, the business systems cannot work directly with these inconsistent docum
 
 ### A Quick Example: The Problem vs. The Goal
 
-To make this concrete, imagine the **same business document** (a supplier invoice) arriving from two different suppliers.
+To make this concrete, imagine the **same business document** (a supplier invoice) arriving from two different suppliers. Real documents rarely put everything in one neat table — the same facts are scattered across the header, footer, legends, notes, and tables that are split across the page.
 
-**Supplier A** sends it as key-value text with a line-item table:
+**Supplier A** puts the company in a title block, some facts in a footer, uses a legend to define a scaling factor, and splits the line items across two side-by-side tables:
 
 ```text
-Invoice No.  : INV-2026-001
-Date         : 08/07/2026
-Supplier     : Acme Trading Ltd
-Currency     : USD
+========================= PAGE HEADER =========================
+ACME TRADING LTD
+123 Harbour Road, Singapore
 
-Item Code | Qty | Thickness (m)
-A100      | 25  | 25 × 10⁻⁴
+Invoice No. : INV-2026-001        Date : 08/07/2026   Ccy : USD
+
+--- Table 1 (left) ---        --- Table 2 (right, same items) ---
+Item Code | Qty                Item Code | Thickness¹
+A100      | 25                 A100      | 25
+
+Legend:  ¹ Thickness expressed in 10⁻⁴ m
+========================= PAGE FOOTER =========================
+Codes:  A01 = Net Amount   A02 = Tax
+A01: 1,250.00      A02: 87,50
 ```
 
-**Supplier B** sends the same concepts, but with different labels, a different layout, and different value formats:
+**Supplier B** carries the same concepts but with different labels, a compact one-line layout, direct values, and everything inline:
 
 ```text
-| Reference # | 2026/JUL/077     |
-| Issued On   | 2026-07-08       |
-| Vendor      | Global Metals Co |
-| Ccy         | US Dollar        |
+GLOBAL METALS CO — Commercial Invoice
 
+Ref # : 2026/JUL/077  |  Issued : 2026-07-08  |  Currency : US Dollar
 Part No.: A100 ; Pieces: 25 ; Thick: 0.0025 m
+Net: USD 1250 ; Tax: USD 87.50
 ```
 
-Both documents mean the same thing, but nothing lines up: the labels differ (`Invoice No.` vs `Reference #`), the dates use different formats, and the thickness is written as a scaling note `25 × 10⁻⁴` by Supplier A but directly as `0.0025` by Supplier B, even though both values are identical.
+Both documents mean exactly the same thing, but almost nothing lines up:
 
-**The goal** is to convert every variation into one predictable, standardized record that business systems can trust. For example, a single JSON output:
+* The labels differ (`Invoice No.` vs `Ref #`, `Qty` vs `Pieces`, `A01` vs `Net`).
+* Key facts hide in a **title block** (`Acme Trading Ltd`), a **footer** (net amount and tax), and a **legend** rather than in clean key-value pairs.
+* The line items are **split across two tables** in Supplier A but written **inline** in Supplier B.
+* The thickness uses a **scaling legend** (`25` with `¹ = 10⁻⁴ m` → `0.0025`) in Supplier A but a **direct value** (`0.0025`) in Supplier B.
+* Even numbers differ: Supplier A writes tax as `87,50` (comma decimal), Supplier B as `87.50`.
+
+**The goal** is to convert every one of these variations into one predictable, standardized record that business systems can trust. For example, a single JSON output:
 
 ```json
 {
@@ -60,6 +72,8 @@ Both documents mean the same thing, but nothing lines up: the labels differ (`In
   "issueDate": "2026-07-08",
   "supplierName": "Acme Trading Ltd",
   "currency": "USD",
+  "netAmount": 1250.00,
+  "taxAmount": 87.50,
   "lineItems": [
     { "itemCode": "A100", "quantity": 25, "thicknessMeters": 0.0025 }
   ]
@@ -71,11 +85,13 @@ Which maps cleanly into standardized database tables:
 ```sql
 CREATE TABLE invoice (
     id             BIGINT PRIMARY KEY,
-    document_type  VARCHAR(50)  NOT NULL,
-    reference_no   VARCHAR(100) NOT NULL,
-    issue_date     DATE         NOT NULL,
-    supplier_name  VARCHAR(200) NOT NULL,
-    currency       CHAR(3)      NOT NULL
+    document_type  VARCHAR(50)   NOT NULL,
+    reference_no   VARCHAR(100)  NOT NULL,
+    issue_date     DATE          NOT NULL,
+    supplier_name  VARCHAR(200)  NOT NULL,
+    currency       CHAR(3)       NOT NULL,
+    net_amount     DECIMAL(18,2),
+    tax_amount     DECIMAL(18,2)
 );
 
 CREATE TABLE invoice_line_item (
@@ -87,7 +103,7 @@ CREATE TABLE invoice_line_item (
 );
 ```
 
-So the core challenge is simple to state but hard to solve: **take many inconsistent input formats and reliably produce one clean, standardized output** that is always structured the same way, no matter which supplier the document came from. The rest of this article follows this same invoice (`INV-2026-001`, item `A100`) through each stage of the pipeline.
+So the core challenge is simple to state but hard to solve: **take many inconsistent input formats — with facts spread across headers, footers, legends, notes, and split tables — and reliably produce one clean, standardized output** that is always structured the same way, no matter which supplier the document came from.
 
 Manually processing these documents process flow is very slow and error-prone. General-purpose AI models such as ChatGPT, Gemini, and Claude are powerful, but they are trained on broad knowledge rather than the specific document structures and terminology used in your business.
 
@@ -134,11 +150,11 @@ You are a deterministic document structure extraction engine.
 Rules:
 1. Do not invent values, labels, rows, columns, translations, or units.
 2. Use only PDF text, OCR text, enhanced OCR text, native PDF text, and detected tables from the input.
-3. Preserve original field headers and table column headers exactly as they appear in the source.
-4. Do not return final database mappings, confidence scores, or business decisions.
-5. Produce a source-bound structured JSON document for later mapping.
-6. Use enhanced OCR to confirm unclear small fonts, superscripts, subscripts, exponent values, or visually ambiguous text.
-7. Use native PDF text when available to verify OCR results.
+3. Keep each original source label exactly as written, and add an "enriched" plain-language meaning for every field and column.
+4. Do NOT decide the final database field name, and do NOT return database mappings, confidence scores, or business decisions. That field matching is done later by the ML model.
+5. Reconstruct logical structure: merge tables that were split across the page, lift key facts out of title blocks and footers, and apply footer legends that define coded columns.
+6. Resolve explicit scaling only when the source states it (a column-header scale or a legend), and record the scale you used so it can be audited. If the scale is unknown, keep the raw value.
+7. Use enhanced OCR to confirm unclear small fonts, superscripts, subscripts, and exponent values, and use native PDF text to verify OCR.
 8. Return valid JSON only.
 ```
 
@@ -161,38 +177,58 @@ Target output example:
           "value": "08/07/2026"
         },
         {
-          "header": "Supplier",
-          "enriched": "supplier or vendor name",
+          "header": "Supplier name",
+          "enriched": "supplier or vendor legal name",
           "value": "Acme Trading Ltd"
         },
         {
-          "header": "Currency",
+          "header": "Ccy",
           "enriched": "monetary currency code",
           "value": "USD"
+        },
+        {
+          "header": "A01",
+          "enriched": "net amount before tax",
+          "value": "1250.00"
+        },
+        {
+          "header": "A02",
+          "enriched": "tax amount",
+          "value": "87.50"
         }
       ],
       "tables": [
         {
           "title": "LineItems",
+          "scale_context": {
+            "mode": "LEGEND_REFERENCE_ROW",
+            "legend": { "1": "10^-4" }
+          },
           "columns": [
             {
               "header": "Item Code",
-              "enriched": "product or service item identifier"
+              "enriched": "product item identifier"
             },
             {
               "header": "Qty",
               "enriched": "ordered quantity"
             },
             {
-              "header": "Thickness (m)",
-              "enriched": "item thickness measurement in meters"
+              "header": "Thickness",
+              "enriched": "item thickness measurement in meters",
+              "metadata": {
+                "value_mode": "SCALED_BY_LEGEND",
+                "scale_ref": "1",
+                "scale": "10^-4",
+                "unit": "m"
+              }
             }
           ],
           "rows": [
             {
               "Item Code": "A100",
               "Qty": "25",
-              "Thickness (m)": "25 × 10⁻⁴"
+              "Thickness": "0.0025"
             }
           ]
         }
@@ -202,6 +238,10 @@ Target output example:
 }
 ```
 
-Notice that this intermediate JSON still keeps the **original source values exactly as written** — the header is still `Invoice No.`, and the thickness is still the raw scaling note `25 × 10⁻⁴`. This is intentional: the normalization step only reorganizes the layout, it does not yet make business decisions. The later mapping stage is what converts `Invoice No.` to the standardized `referenceNumber` field and resolves `25 × 10⁻⁴` into the numeric value `0.0025` shown in the target output from the introduction.
+Notice what this stage does and does **not** do. It keeps each original source label exactly as written — `Invoice No.`, and even the cryptic footer codes `A01`/`A02` — and for each one it adds a plain-language `enriched` meaning such as `commercial invoice identifier` or `net amount before tax`. It also cleans up the messy layout from the introduction example: the two split tables are merged into one `LineItems` table, the supplier name is lifted out of the title block, the footer codes are resolved through the page legend, and the comma-decimal `87,50` is normalized to `87.50`.
+
+Crucially, this stage does **not** decide which standardized database field each item becomes. It never claims that `Invoice No.` *is* the `referenceNumber` column. That matching is the job of our ML model in the next stage, which compares the `enriched` meaning against the standardized fields. Keeping the raw label **plus a semantic hint** — instead of guessing the final field name here — is exactly what lets one model handle every supplier without a hard-coded list of possible labels.
+
+The one thing this stage *does* resolve is explicit scaling. Because Supplier A's legend defines `¹ = 10⁻⁴ m`, the raw thickness `25` becomes `0.0025`, and the scale that was applied is recorded in `scale_context` and column `metadata` so the calculation can be audited later.
 
 Without this normalization step, the remaining pipeline becomes much harder. The embedding model, mapping rules, and verifier would all need to understand every possible document layout. By converting all extracted content into a predictable intermediate JSON first, the later stages can focus on semantic meaning instead of layout confusion.
