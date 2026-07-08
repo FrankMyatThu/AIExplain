@@ -1,7 +1,7 @@
 #### How I Built an Agentic Document Analyzer App
 --------------------------------------------------
 
-Let's say you want to read/analyze:
+Imagine you need to analyze documents such as:
 
 * Purchase Orders
 * Supplier Invoices
@@ -9,56 +9,20 @@ Let's say you want to read/analyze:
 * Bank Statements
 * Medical Reports
 
-But if they are coming from different suppliers or different banks in different countries,
-then those documents will have 90% inconsistent formats/layouts.
+If those documents come from different suppliers, banks, or organizations across different countries, they rarely share the same format.
 
-In real documents, the whole page can be different:
+In reality:
 
-* Some suppliers use different labels,
-  such as "Invoice No.", "Inv #", or "Reference No."
-  or "PO Number", "PO No.", "Order Ref", "Order ID", or "Purchase Order".
-* Some suppliers use one clean table.
-* Some split the same information into multiple tables.
-* Some use short column names with footer legends.
-* Some write values like 0.0025 directly.
-* Some write 25 and include a note in the table header saying "×10⁻⁴".
-* Some put important values in the header, footer, barcode, or notes area.
-* Some continue the table across multiple pages.
-* Some mix structured tables with free-text instructions.
+* Different labels may represent the same business concept, such as **"Invoice No."**, **"Inv #"**, or **"Reference No."**
+* Information may appear in one table, multiple tables, or even outside tables.
+* Some values are written directly, while others use scaling notes such as **25 × 10⁻⁴** instead of **0.0025**.
+* Important information may be located in headers, footers, barcodes, notes, or across multiple pages.
 
-So even when the business meaning is the same, the document layout, terminology, and data presentation can be very different.
+Although the business meaning is the same, the layout, terminology, and data presentation can be completely different.
 
-That is why a normal prompt is usually not enough for production use.
-We need a document AI pipeline that can extract, normalize, map, and verify the information consistently.
+Manually processing these documents is slow and error-prone. General-purpose AI models such as ChatGPT, Gemini, and Claude are powerful, but they are trained on broad knowledge rather than the specific document structures and terminology used in your business.
 
-But you don't want to manually read them; you want to let an AI system analyze them.
-Then you may think you can use the most popular LLMs, such as ChatGPT, Gemini, Claude, or whatever.
+This is where an **Agentic Document Analyzer** becomes valuable. By combining specialized AI components, it can consistently extract, normalize, map, and verify information across highly inconsistent document formats.
 
-But the problems are:
-
-1. They are not trained specifically for your business requirements.
-   This means they cannot know 100% of your industry-specific knowledge.
-   So if you let them analyze those documents, the results cannot be fully accurate, no matter how good or perfect your prompt is.
-   Because from one supplier to another, the document layout, technical terms, labels, and data presentation can all be different.
-
-
-
-
-
-## Tree View
-
-- [1. OCR And Vector Extraction](#1-ocr-and-vector-extraction)
-- [2. Claude LLM Structure Normalization](#2-claude-llm-structure-normalization)
-- [3. Mapping](#3-mapping)
-  - [3.1 How The Application Knows Which Supplier Label Means What](#31-how-the-application-knows-which-supplier-label-means-what)
-  - [3.1.A Why Keyword Search Is Not Enough](#31a-why-keyword-search-is-not-enough)
-  - [3.1.B Why We Use Semantic Search](#31b-why-we-use-semantic-search)
-    - [3.1.B.1 How Semantic Search Works](#31b1-how-semantic-search-works)
-    - [3.1.B.2 Why A Ready-Made Embedding Model Is Not Enough](#31b2-why-a-ready-made-embedding-model-is-not-enough)
-- [4. Training Layer](#4-training-layer)
-- [5. Inference Layer](#5-inference-layer)
-- [6. Fargate / Backend Runtime Layer](#6-fargate--backend-runtime-layer)
-- [7. Claude Mapping Verifier](#7-claude-mapping-verifier)
-- [8. Alignment Rules And Full Recap](#8-alignment-rules-and-full-recap)
-- [9. Golden Knowledge Preservation Map](#9-golden-knowledge-preservation-map)
+In this article, I'll share how I built this system and the ideas behind its architecture.
 
