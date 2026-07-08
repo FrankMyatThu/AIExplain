@@ -22,7 +22,7 @@ Although the business meaning is the same, the layout, terminology, and data pre
 
 However, the business systems cannot work directly with these inconsistent documents. They require the information to be converted into a single standardized format before it can be stored, searched, validated, or integrated with other systems.
 
-### A Quick Example: The Problem vs. The Goal
+### The Problem vs. The Goal/Solution
 
 To make this concrete, imagine the **same business document** (a supplier invoice) arriving from two different suppliers. Real documents rarely put everything in one neat table — the same facts are scattered across the header, footer, legends, notes, and tables that are split across the page.
 
@@ -245,3 +245,5 @@ Crucially, this stage does **not** decide which standardized database field each
 The one thing this stage *does* resolve is explicit scaling. Because Supplier A's legend defines `¹ = 10⁻⁴ m`, the raw thickness `25` becomes `0.0025`, and the scale that was applied is recorded in `scale_context` and column `metadata` so the calculation can be audited later.
 
 Without this normalization step, the remaining pipeline becomes much harder. The embedding model, mapping rules, and verifier would all need to understand every possible document layout. By converting all extracted content into a predictable intermediate JSON first, the later stages can focus on semantic meaning instead of layout confusion.
+
+## 3. Semantic Matching Layer
