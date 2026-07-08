@@ -22,6 +22,73 @@ Although the business meaning is the same, the layout, terminology, and data pre
 
 However, the business systems cannot work directly with these inconsistent documents. They require the information to be converted into a single standardized format before it can be stored, searched, validated, or integrated with other systems.
 
+### A Quick Example: The Problem vs. The Goal
+
+To make this concrete, imagine the **same business document** (a supplier invoice) arriving from two different suppliers.
+
+**Supplier A** sends it as key-value text with a line-item table:
+
+```text
+Invoice No.  : INV-2026-001
+Date         : 08/07/2026
+Supplier     : Acme Trading Ltd
+Currency     : USD
+
+Item Code | Qty | Thickness (m)
+A100      | 25  | 25 × 10⁻⁴
+```
+
+**Supplier B** sends the same concepts, but with different labels, a different layout, and different value formats:
+
+```text
+| Reference # | 2026/JUL/077     |
+| Issued On   | 2026-07-08       |
+| Vendor      | Global Metals Co |
+| Ccy         | US Dollar        |
+
+Part No.: A100 ; Pieces: 25 ; Thick: 0.0025 m
+```
+
+Both documents mean the same thing, but nothing lines up: the labels differ (`Invoice No.` vs `Reference #`), the dates use different formats, and the thickness is written as a scaling note `25 × 10⁻⁴` by Supplier A but directly as `0.0025` by Supplier B, even though both values are identical.
+
+**The goal** is to convert every variation into one predictable, standardized record that business systems can trust. For example, a single JSON output:
+
+```json
+{
+  "documentType": "SupplierInvoice",
+  "referenceNumber": "INV-2026-001",
+  "issueDate": "2026-07-08",
+  "supplierName": "Acme Trading Ltd",
+  "currency": "USD",
+  "lineItems": [
+    { "itemCode": "A100", "quantity": 25, "thicknessMeters": 0.0025 }
+  ]
+}
+```
+
+Which maps cleanly into standardized database tables:
+
+```sql
+CREATE TABLE invoice (
+    id             BIGINT PRIMARY KEY,
+    document_type  VARCHAR(50)  NOT NULL,
+    reference_no   VARCHAR(100) NOT NULL,
+    issue_date     DATE         NOT NULL,
+    supplier_name  VARCHAR(200) NOT NULL,
+    currency       CHAR(3)      NOT NULL
+);
+
+CREATE TABLE invoice_line_item (
+    id                BIGINT PRIMARY KEY,
+    invoice_id        BIGINT       NOT NULL REFERENCES invoice(id),
+    item_code         VARCHAR(50)  NOT NULL,
+    quantity          INT          NOT NULL,
+    thickness_meters  DECIMAL(18,6)
+);
+```
+
+So the core challenge is simple to state but hard to solve: **take many inconsistent input formats and reliably produce one clean, standardized output** that is always structured the same way, no matter which supplier the document came from. The rest of this article follows this same invoice (`INV-2026-001`, item `A100`) through each stage of the pipeline.
+
 Manually processing these documents process flow is very slow and error-prone. General-purpose AI models such as ChatGPT, Gemini, and Claude are powerful, but they are trained on broad knowledge rather than the specific document structures and terminology used in your business.
 
 This is where an **Agentic Document Analyzer** becomes valuable. By combining specialized AI components, it can consistently extract, normalize, map, and verify information across highly inconsistent document formats.
@@ -87,6 +154,21 @@ Target output example:
           "header": "Invoice No.",
           "enriched": "commercial invoice identifier",
           "value": "INV-2026-001"
+        },
+        {
+          "header": "Date",
+          "enriched": "document issue date",
+          "value": "08/07/2026"
+        },
+        {
+          "header": "Supplier",
+          "enriched": "supplier or vendor name",
+          "value": "Acme Trading Ltd"
+        },
+        {
+          "header": "Currency",
+          "enriched": "monetary currency code",
+          "value": "USD"
         }
       ],
       "tables": [
@@ -100,12 +182,17 @@ Target output example:
             {
               "header": "Qty",
               "enriched": "ordered quantity"
+            },
+            {
+              "header": "Thickness (m)",
+              "enriched": "item thickness measurement in meters"
             }
           ],
           "rows": [
             {
               "Item Code": "A100",
-              "Qty": "25"
+              "Qty": "25",
+              "Thickness (m)": "25 × 10⁻⁴"
             }
           ]
         }
@@ -114,5 +201,7 @@ Target output example:
   ]
 }
 ```
+
+Notice that this intermediate JSON still keeps the **original source values exactly as written** — the header is still `Invoice No.`, and the thickness is still the raw scaling note `25 × 10⁻⁴`. This is intentional: the normalization step only reorganizes the layout, it does not yet make business decisions. The later mapping stage is what converts `Invoice No.` to the standardized `referenceNumber` field and resolves `25 × 10⁻⁴` into the numeric value `0.0025` shown in the target output from the introduction.
 
 Without this normalization step, the remaining pipeline becomes much harder. The embedding model, mapping rules, and verifier would all need to understand every possible document layout. By converting all extracted content into a predictable intermediate JSON first, the later stages can focus on semantic meaning instead of layout confusion.
