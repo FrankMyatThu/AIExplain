@@ -49,4 +49,68 @@ When a PDF contains selectable text, I also extract the native PDF text. Because
 
 By combining these extraction methods instead of relying on just one, the system produces more reliable input for the downstream AI pipeline.
 
+## 2. Claude LLM Structure Normalization
 
+After PDF/Data extraction, the data is still not ready for reliable mapping. Different suppliers may place the same information in completely different areas: headers, tables, footer notes, key-value fields, or across multiple pages.
+
+So before semantic mapping, I use an LLM for **Structure Normalization**.
+
+The purpose of this step is not to make the final business decision. It does not map fields to the database yet. Its job is to reorganize extracted PDF, OCR, and native PDF text into one consistent JSON structure for the later pipeline.
+
+Example prompt idea:
+
+```text
+You are a deterministic document structure extraction engine.
+
+Rules:
+1. Do not invent values, labels, rows, columns, translations, or units.
+2. Use only PDF text, OCR text, enhanced OCR text, native PDF text, and detected tables from the input.
+3. Preserve original field headers and table column headers exactly as they appear in the source.
+4. Do not return final database mappings, confidence scores, or business decisions.
+5. Produce a source-bound structured JSON document for later mapping.
+6. Use enhanced OCR to confirm unclear small fonts, superscripts, subscripts, exponent values, or visually ambiguous text.
+7. Use native PDF text when available to verify OCR results.
+8. Return valid JSON only.
+```
+
+Target output example:
+
+```json
+{
+  "pages": [
+    {
+      "pageNumber": 1,
+      "fields": [
+        {
+          "header": "Invoice No.",
+          "enriched": "commercial invoice identifier",
+          "value": "INV-2026-001"
+        }
+      ],
+      "tables": [
+        {
+          "title": "LineItems",
+          "columns": [
+            {
+              "header": "Item Code",
+              "enriched": "product or service item identifier"
+            },
+            {
+              "header": "Qty",
+              "enriched": "ordered quantity"
+            }
+          ],
+          "rows": [
+            {
+              "Item Code": "A100",
+              "Qty": "25"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Without this normalization step, the remaining pipeline becomes much harder. The embedding model, mapping rules, and verifier would all need to understand every possible document layout. By converting all extracted content into a predictable intermediate JSON first, the later stages can focus on semantic meaning instead of layout confusion.
