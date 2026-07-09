@@ -280,7 +280,7 @@ If we search for the keyword `referenceNumber` — or even loosen it to fragment
 This exposes two problems at the same time:
 
 1. **Same meaning, no shared words.** `Ref #` and `Document ID` mean exactly the same thing as `referenceNumber`, but they share almost no characters with it. Keyword search cannot bridge that gap unless we hand-maintain a giant synonym list for every supplier — which defeats the goal of handling documents we have never seen before.
-2. **Shared words, different meaning.** Labels like `Invoice No.`, `Cert No.`, and `Contract No.` all contain `No.`. A keyword rule based on `No.` or `number` will happily score the *wrong* field high, even though the business meaning is different.
+2. **Shared words, different meaning.** Labels like `Invoice No.`, `DO No.`, and `Contract No.` all contain `No.`. A keyword rule based on `No.` or `number` will happily score the *wrong* field high, even though the business meaning is different.
 
 So keyword search is brittle in both directions: it **misses correct matches** when the wording differs, and it **over-matches wrong fields** when common tokens like `No.` overlap. It only works when everyone uses the exact same words — which is precisely the assumption that breaks with real supplier documents.
 
@@ -293,7 +293,7 @@ Recall that Structure Normalization already gave every source field two useful p
 * the original label (`header`), for example `"Ref #"`
 * a plain-language hint (`enriched`), for example `"commercial invoice identifier"`
 
-The Semantic Matching Layer converts both the source text and each standardized field description into embedding vectors — lists of numbers where similar meanings point in similar directions — and then ranks which standardized field is closest in meaning. That is how `"Invoice No."`, `"Ref #"`, and `"Document ID"` can all map to `referenceNumber` without their words ever matching, while still keeping `Invoice No.` and `Cert No.` apart even though both contain `No.`.
+The Semantic Matching Layer converts both the source text and each standardized field description into embedding vectors — lists of numbers where similar meanings point in similar directions — and then ranks which standardized field is closest in meaning. That is how `"Invoice No."`, `"Ref #"`, and `"Document ID"` can all map to `referenceNumber` without their words ever matching, while still keeping `Invoice No.` and `DO No.` apart even though both contain `No.`.
 
 The following sections explain how those embeddings are produced and compared.
 
