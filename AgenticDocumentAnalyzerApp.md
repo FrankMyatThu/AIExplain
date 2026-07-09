@@ -300,7 +300,7 @@ Recall that **Claude LLM Structure Normalization layer** already gave every sour
 
 The Semantic Matching Layer converts both the source text and each standardized field description into embedding vectors — lists of numbers where similar meanings point in similar directions — and then ranks which standardized field is closest in meaning. That is how `"Invoice No."`, `"Ref #"`, and `"Document ID"` can all map to `referenceNumber` without their words ever matching, while still keeping `Invoice No.` and `DO No.` apart even though both contain `No.`.
 
-## How Embeddings are produced and compared (or how semantic search is working)
+### How Embeddings are produced and compared (How Semantic search is working)
 
 The model cannot directly understand raw text. It first converts text into
 token IDs, then into vectors, then runs those vectors through transformer
