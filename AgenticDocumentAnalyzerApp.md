@@ -13,7 +13,7 @@ If those documents come from different suppliers, banks, or organizations across
 
 In reality:
 
-* Different labels may represent the same business concept, such as **"Invoice No."**, **"Inv #"**, or **"Reference No."**
+* Different labels may represent the same business concept, such as **"Invoice No."**, **"Ref #"**, or **"Reference No."**
 * Information may appear in one table, multiple tables, or even outside tables.
 * Some values are written directly, while others use scaling notes such as **25 × 10⁻⁴** instead of **0.0025**.
 * Important information may be located in headers, footers, barcodes, notes, or across multiple pages.
@@ -246,6 +246,54 @@ The one thing this stage *does* resolve is explicit scaling. Because Supplier A'
 
 Without this normalization step, the remaining pipeline becomes much harder. The embedding model, mapping rules, and verifier would all need to understand every possible document layout. By converting all extracted content into a predictable intermediate JSON first, the later stages can focus on semantic meaning instead of layout confusion.
 
-## 3. Semantic Matching Layer
+## 3. Matching/Searching Layer
 
-We now have clean JSON, but the field names are still supplier-specific. One document says "Invoice No.", another says "Ref #", and a third says "Document ID". We still don't know which standardized field each belongs to. This is the problem the Semantic Matching Layer solves.
+We now have clean JSON, but the field names are still supplier-specific. One document says "Invoice No.", another says "Ref #", and a third says "Document ID". We still don't know which standardized field each belongs to. 
+
+### Keyword Search
+
+The most obvious idea to solve this issue is keyword search: take the standardized field name we want (for example `referenceNumber`) and look for it in the document labels. In practice this fails almost immediately.
+
+Suppose our standardized schema field is:
+
+```text
+referenceNumber  ->  commercial invoice / document reference identifier
+```
+
+The same business fact arrives from three suppliers with three different labels:
+
+```text
+Supplier A:  "Invoice No."   = INV-2026-001
+Supplier B:  "Ref #"         = 2026/JUL/077
+Supplier C:  "Document ID"   = DOC-8891
+```
+
+If we search for the keyword `referenceNumber` — or even loosen it to fragments like `reference` or `number` — none of the real labels match:
+
+| Search term       | `Invoice No.` | `Ref #` | `Document ID` |
+| ----------------- | ------------- | ------- | ------------- |
+| `referenceNumber` | miss          | miss    | miss          |
+| `reference`       | miss          | miss    | miss          |
+| `invoice`         | hit           | miss    | miss          |
+| `number` / `No.`  | hit           | miss    | miss          |
+
+This exposes two problems at the same time:
+
+1. **Same meaning, no shared words.** `Ref #` and `Document ID` mean exactly the same thing as `referenceNumber`, but they share almost no characters with it. Keyword search cannot bridge that gap unless we hand-maintain a giant synonym list for every supplier — which defeats the goal of handling documents we have never seen before.
+2. **Shared words, different meaning.** Labels like `Invoice No.`, `Cert No.`, and `Contract No.` all contain `No.`. A keyword rule based on `No.` or `number` will happily score the *wrong* field high, even though the business meaning is different.
+
+So keyword search is brittle in both directions: it **misses correct matches** when the wording differs, and it **over-matches wrong fields** when common tokens like `No.` overlap. It only works when everyone uses the exact same words — which is precisely the assumption that breaks with real supplier documents.
+
+### Semantic Search
+
+Instead of comparing spelling, this layer compares **meaning**.
+
+Recall that Structure Normalization already gave every source field two useful pieces of text:
+
+* the original label (`header`), for example `"Ref #"`
+* a plain-language hint (`enriched`), for example `"commercial invoice identifier"`
+
+The Semantic Matching Layer converts both the source text and each standardized field description into embedding vectors — lists of numbers where similar meanings point in similar directions — and then ranks which standardized field is closest in meaning. That is how `"Invoice No."`, `"Ref #"`, and `"Document ID"` can all map to `referenceNumber` without their words ever matching, while still keeping `Invoice No.` and `Cert No.` apart even though both contain `No.`.
+
+The following sections explain how those embeddings are produced and compared.
+
