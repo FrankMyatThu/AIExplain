@@ -238,13 +238,18 @@ Target output example:
 }
 ```
 
-Notice what this stage does and does **not** do. It keeps each original source label exactly as written — `Invoice No.`, and even the cryptic footer codes `A01`/`A02` — and for each one it adds a plain-language `enriched` meaning such as `commercial invoice identifier` or `net amount before tax`. It also cleans up the messy layout from the introduction example: the two split tables are merged into one `LineItems` table, the supplier name is lifted out of the title block, the footer codes are resolved through the page legend, and the comma-decimal `87,50` is normalized to `87.50`.
+In short, this stage does three things and deliberately avoids a fourth:
 
-Crucially, this stage does **not** decide which standardized database field each item becomes. It never claims that `Invoice No.` *is* the `referenceNumber` column. That matching is the job of our ML model in the next stage, which compares the `enriched` meaning against the standardized fields. Keeping the raw label **plus a semantic hint** — instead of guessing the final field name here — is exactly what lets one model handle every supplier without a hard-coded list of possible labels.
+- **Keeps every original label** exactly as written — `Invoice No.` and even cryptic footer codes like `A01`/`A02` — and attaches a plain-language `enriched` meaning to each (for example `commercial invoice identifier`, `net amount before tax`).
+- **Fixes the messy layout**: split tables are merged into one `LineItems` table, the supplier name is lifted out of the title block, footer codes are resolved through the page legend, and comma-decimals like `87,50` become `87.50`.
+- **Resolves explicit scaling only**: because Supplier A's legend defines `¹ = 10⁻⁴ m`, the raw thickness `25` becomes `0.0025`, and the applied scale is recorded in `scale_context` / column `metadata` so it can be audited later.
+- **Does *not* choose the database field.** It never claims `Invoice No.` *is* the `referenceNumber` column — that matching happens in the next (ML) stage.
 
-The one thing this stage *does* resolve is explicit scaling. Because Supplier A's legend defines `¹ = 10⁻⁴ m`, the raw thickness `25` becomes `0.0025`, and the scale that was applied is recorded in `scale_context` and column `metadata` so the calculation can be audited later.
+By turning every supplier's layout into one predictable JSON first, the later embedding, mapping, and verifier stages can focus on meaning instead of fighting layout differences.
 
-Without this normalization step, the remaining pipeline becomes much harder. The embedding model, mapping rules, and verifier would all need to understand every possible document layout. By converting all extracted content into a predictable intermediate JSON first, the later stages can focus on semantic meaning instead of layout confusion.
+> **You may be wondering: why did I let Claude add the `enriched` field at all?**
+>
+> Because the next stage matches on *meaning*, not spelling. A raw label like `A01` or `Ref #` carries almost no signal on its own, and it shares no words with a standardized field name like `netAmount` or `referenceNumber`. The `enriched` hint (`net amount before tax`, `commercial invoice identifier`) gives the embedding model real semantic text to compare against the standardized fields — so one model can handle any supplier without a hard-coded synonym list for every possible label. Just as important, I keep the raw label **and** the hint side by side: the hint drives matching, while the original label stays for audit and traceability.
 
 ## 3. Matching/Searching Layer
 
@@ -288,7 +293,7 @@ So keyword search is brittle in both directions: it **misses correct matches** w
 
 Instead of comparing spelling, this layer compares **meaning**.
 
-Recall that Structure Normalization already gave every source field two useful pieces of text:
+Recall that **Claude LLM Structure Normalization layer** already gave every source field two useful pieces of text:
 
 * the original label (`header`), for example `"Ref #"`
 * a plain-language hint (`enriched`), for example `"commercial invoice identifier"`
