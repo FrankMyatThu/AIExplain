@@ -300,5 +300,467 @@ Recall that **Claude LLM Structure Normalization layer** already gave every sour
 
 The Semantic Matching Layer converts both the source text and each standardized field description into embedding vectors — lists of numbers where similar meanings point in similar directions — and then ranks which standardized field is closest in meaning. That is how `"Invoice No."`, `"Ref #"`, and `"Document ID"` can all map to `referenceNumber` without their words ever matching, while still keeping `Invoice No.` and `DO No.` apart even though both contain `No.`.
 
-The following sections explain how those embeddings are produced and compared.
+## How Embeddings are produced and compared (or how semantic search is working)
+
+The model cannot directly understand raw text. It first converts text into
+token IDs, then into vectors, then runs those vectors through transformer
+layers, then pools the token vectors into one vector for the full text.
+
+```text
+raw text -> tokenizer -> token IDs -> embedding layer
+         -> forward pass through transformer layers
+         -> per-token vectors -> pooling -> one vector
+```
+
+Top-to-bottom execution pipeline:
+
+```text
+Pipeline (top to bottom = order of execution)
+|
++-- 1. Tokenizer
+|   +-- raw text -> token IDs
+|       e.g. "cool" -> [4658]
+|
++-- 2. Token Embedding Layer (part of the model, first layer) <-- inside the model
+|   +-- token IDs -> per-token vectors (untrained context, just lookup)
+|       [4658] -> [0.02, -0.45, ...]
+|
++-- 3. Forward Pass (transformer layers: attention + FFN, stacked N times) <-- inside the model
+|   +-- per-token vectors -> per-token vectors (now context-aware)
+|       still one vector per token, just enriched by the whole sequence
+|
++-- 4. Pooling (post-processing, not a neural layer) <-- outside the model
+    +-- per-token vectors -> one vector
+        strategies: mean pooling / CLS pooling / last-token pooling
+        |
+        +-- "Sentence / Document Embedding" <-- this is data, a vector, not a layer
+            this is a result, not a separate layer in the stack
+```
+
+The diagram is the single source of truth for execution order. The details
+below explain each step once and keep the golden notes under the step where
+they belong.
+
+### Step 1. Tokenizer: Raw Text To Token IDs
+
+The tokenizer is outside the neural network model. It is a text conversion
+tool. Its job is to turn human-readable raw text into the numeric token IDs
+that the model can accept.
+
+Example:
+
+```text
+"cool" -> [4658]
+```
+
+The number `4658` is not the meaning of the word. It is an ID in the tokenizer
+vocabulary. The ID tells the model which learned token row to look up in the
+token embedding layer.
+
+A token is a piece of text after tokenization. It may be:
+
+- a full word
+- part of a word
+- punctuation
+- a special model token
+
+The tokenizer can add special tokens such as `[CLS]` and `[SEP]`, depending on
+the model family.
+
+Real project code:
+
+`Backend/ML/millcert-header-model/inference/inference.py`
+
+```python
+enc = tokenizer(
+    texts,
+    padding=True,
+    truncation=True,
+    max_length=embedding_max_len,
+    return_tensors="pt"
+)
+```
+
+For uncommon words, the tokenizer can split one word into subword pieces:
+
+```text
+"embeddings" -> [embed, ##ding, s]
+"embeddings are cool" -> [embed, ##ding, s, are, cool]
+"certification" -> cert + ##ification
+"ASTMXYZ9000" -> smaller known chunks, digits, or subword pieces
+```
+
+This is why the model can still process many words that were not trained as one
+complete word. It can use known pieces. If the tokenizer cannot represent a
+word well, some models may use an unknown token, which loses detail.
+
+Fine-tuning does not teach one new weight per possible supplier word. It
+teaches the model how to map header-like text into useful vector space using
+the tokenizer pieces and learned transformer weights.
+
+Padding adds placeholder tokens so every text in the same batch has the same
+length. Neural network batches need rectangular tensor shapes.
+
+An attention mask tells the model which token positions are real text and which
+positions are padding:
+
+```text
+real token -> 1
+padding    -> 0
+```
+
+Padding exists only to make batch shapes line up. It should not contribute
+meaning to model attention, CLS pooling, or mean pooling.
+
+Truncation cuts text longer than the configured maximum token length. The
+project uses `embedding_max_len` to keep training and inference consistent. If
+important content appears after the truncation limit, the model will not see
+it. This is why embedding text should put the most important source evidence
+early and avoid unnecessary noise.
+
+### Step 2. Token Embedding Layer: Token IDs To Base Token Vectors
+
+The token embedding layer is inside the model. It is the first model layer that
+converts token IDs into vectors.
+
+Conceptually, it behaves like a learned lookup table:
+
+```text
+token ID 4658 -> [0.02, -0.45, 0.18, ...]
+```
+
+At this point, the vector is not yet context-aware. It is the learned base
+vector for that token ID. The vector knows something learned during pretraining
+and fine-tuning, but it has not yet looked at the other tokens in the current
+input sentence or header.
+
+Example:
+
+```text
+"Heat No." -> token IDs -> token embedding vectors
+```
+
+The model still has one vector per token. It does not yet have one vector for
+the whole header.
+
+### Step 3. Forward Pass: Base Token Vectors To Context-Aware Token Vectors
+
+A transformer model is a neural network architecture that reads a sequence of
+tokens and builds context-aware vectors for them. In this project, the base
+model is:
+
+```text
+sentence-transformers/all-MiniLM-L12-v2
+```
+
+The base model is the pretrained model. It already has general language
+knowledge. Fine-tuning adjusts that model so it becomes better at this specific
+MillCert header-matching domain.
+
+Human analogy:
+
+- The pretrained model is the starting brain.
+- Fine-tuning adjusts that brain for the MillCert domain.
+- The embedding output is the model's thought vector for the input text.
+
+A forward pass is the step where inputs move through the model and the model
+produces outputs:
+
+```text
+token IDs + attention mask -> transformer -> hidden states
+```
+
+During training, the forward pass records information needed for gradients.
+During inference, the forward pass only creates embeddings.
+
+Human analogy:
+
+```text
+forward pass = think
+```
+
+The forward pass sends token vectors through stacked transformer layers. These
+layers contain attention and feed-forward network blocks. Attention lets each
+token look at other tokens in the same input. That is what makes the output
+context-aware.
+
+Example:
+
+```text
+"Heat No."
+```
+
+The vector for `No.` can be influenced by `Heat`, so it can mean heat number
+instead of invoice number or certificate number.
+
+Another example:
+
+```text
+"Invoice No."
+```
+
+The same `No.` token is now surrounded by `Invoice`, so its contextual vector
+becomes different.
+
+For each training batch, the model thinks about anchor, positive, and negative
+texts and produces embedding vectors for all three.
+
+A hidden state is the model's internal vector representation for a token. After
+the forward pass, one header text has many token vectors:
+
+```text
+token 1 -> vector
+token 2 -> vector
+token 3 -> vector
+...
+```
+
+The important point:
+
+```text
+input to transformer = one vector per token
+output from transformer = still one vector per token
+```
+
+The difference is that output vectors are enriched by context from the full
+sequence. The transformer does not automatically collapse all tokens into one
+sentence vector. That happens in pooling.
+
+The tensor shape is conceptually:
+
+```text
+[batch_size, sequence_length, hidden_size]
+```
+
+For example, if 5 texts are padded to 256 tokens and the hidden size is 384:
+
+```text
+[5, 256, 384]
+```
+
+Real project code:
+
+`Backend/ML/millcert-header-model/inference/inference.py`
+
+```python
+outputs = model(**enc)
+```
+
+### Step 4. Pooling: Context-Aware Token Vectors To One Text Vector
+
+The project needs one vector per header or canonical field so vectors can be
+compared. This conversion from many token vectors to one text vector is called
+pooling.
+
+Pooling is post-processing applied to the transformer output. It is not a new
+transformer layer in the stack.
+
+Before pooling:
+
+```text
+token 1 -> vector
+token 2 -> vector
+token 3 -> vector
+```
+
+After pooling:
+
+```text
+whole text -> one vector
+```
+
+`[CLS]` is a special token placed at the beginning of the input for BERT-style
+models. It is commonly used as a summary position. The model can learn to put
+useful whole-text information into the `[CLS]` vector.
+
+In tensor indexing, CLS pooling uses:
+
+```python
+outputs.last_hidden_state[:, 0, :]
+```
+
+That means:
+
+- `:`: all texts in the batch
+- `0`: token position 0, the `[CLS]` token
+- `:`: all hidden dimensions
+
+CLS pooling means:
+
+```text
+Use the vector for the first `[CLS]` token as the embedding for the whole text.
+```
+
+Why use CLS pooling:
+
+- It is simple.
+- It can preserve a strong signal from the beginning of a header.
+- It often gives a wider score range in this project.
+
+When CLS pooling can hurt:
+
+- Very short text can sometimes score weaker.
+- If the first part of the text is noisy, the summary can be less useful.
+
+Mean pooling means:
+
+```text
+Average all real token vectors into one vector.
+```
+
+Padding tokens are excluded using the attention mask. In this project, mean
+pooling is attention-masked. It averages only real tokens, not padding tokens.
+
+Why use mean pooling:
+
+- It can help short phrases.
+- It uses information across the whole text.
+
+When mean pooling can hurt:
+
+- Long noisy text can dilute the important words.
+- Score range can become compressed.
+
+Last-token pooling uses the final token vector. It is common in some model
+families but is not the main project behavior here.
+
+The project supports both `cls` and `mean`. The chosen mode is saved with the
+model in:
+
+```text
+output_model/hf_triplet_model/pooling.json
+```
+
+Training, local evaluation, and SageMaker inference must use the same pooling
+mode. Previous SageMaker inference comments described CLS-only pooling. That is
+still valid when pooling mode is `cls`, but the current implementation supports
+both `cls` and `mean` and loads the selected mode from the model artifact.
+
+Real project code:
+
+`Backend/ML/millcert-header-model/inference/inference.py`
+
+```python
+def pool_embeddings(last_hidden_state, attention_mask, mode):
+    if mode == "mean":
+        mask = attention_mask.unsqueeze(-1).to(last_hidden_state.dtype)
+        summed = (last_hidden_state * mask).sum(dim=1)
+        counts = mask.sum(dim=1).clamp(min=1e-9)
+        return summed / counts
+    return last_hidden_state[:, 0, :]
+
+pooled = pool_embeddings(outputs.last_hidden_state, enc["attention_mask"], pooling)
+```
+
+### Step 5. Sentence / Document Embedding: The Result, Not A Layer
+
+The sentence/document embedding is the result after pooling. It is data, not a
+layer. Said another way: it is data, not a layer.
+
+In this project, that result is a 384-number vector for MiniLM before or after
+normalization, depending on the exact step being discussed.
+
+Example idea:
+
+```text
+"Heat No." -> [0.12, -0.08, 0.33, ...]
+```
+
+The final sentence/document embedding is not produced by choosing one word. It
+is created after the model has produced one contextual vector per token and
+pooling converts those token vectors into one text vector.
+
+### L2 Normalization
+
+After pooling, the vector can have any length. The project normalizes it.
+
+The L2 norm is the vector length:
+
+```text
+L2 norm = √(x₁² + x₂² + x₃² + ... + xₙ²)
+```
+
+L2 normalization divides a vector by its own length:
+
+```text
+normalized_vector = vector / L2_norm(vector)
+```
+
+After this, the vector length is `1`.
+
+Normalization makes comparison focus on direction, not magnitude. For header
+matching, direction is usually what matters:
+
+- Similar meaning should point in a similar direction.
+- Different meaning should point in a different direction.
+
+Without normalization:
+
+- large-magnitude vectors can dominate scores
+- texts may look close because vector lengths are large, not because meanings
+  are similar
+- training, evaluation, and inference scores become harder to compare
+- cosine-based runtime behavior may no longer match training behavior
+
+Real project code:
+
+`Backend/ML/millcert-header-model/inference/inference.py`
+
+```python
+embeddings = F.normalize(pooled, p=2, dim=1)
+```
+
+For the live model-and-matching path, keep three steps separate:
+
+1. Training normalizes anchor, positive, and negative embeddings before cosine
+   triplet loss compares them.
+2. SageMaker inference normalizes embeddings and ends when it returns vectors.
+3. Downstream Fargate semantic matching/search consumes those vectors and
+   compares direction/meaning with cosine similarity.
+
+```text
+Training path
+triplets
+  -> tokenizer
+  -> transformer model
+  -> pooling
+  -> L2 normalize pooled embeddings
+  -> cosine triplet loss compares anchor / positive / negative
+  -> optimizer updates model weights
+
+SageMaker inference path
+canonical text + source header text
+  -> SageMaker tokenizer
+  -> trained transformer model
+  -> pooling
+  -> L2 normalize returned embeddings
+  -> embedding vectors returned
+
+Downstream semantic matching/search path
+L2-normalized canonical vectors + L2-normalized header vectors
+  -> Fargate cosine similarity compares direction/meaning
+  -> rank candidate headers
+  -> threshold and confidence-gap rules decide outcome
+```
+
+Cosine similarity is:
+
+```text
+cosine_similarity = (Σᵢ aᵢbᵢ) / (√(Σᵢ aᵢ²) × √(Σᵢ bᵢ²))
+```
+
+If both vectors are normalized, then:
+
+```text
+norm(a) = 1
+norm(b) = 1
+```
+
+So:
+
+```text
+cosine_similarity = dot(a, b)
+```
+
+This makes scoring simpler and stable.
 
