@@ -315,19 +315,24 @@ after SageMaker returns vectors to the Fargate worker.
 Summary work flow:
 
 ```text
-A.raw text
-  -> B.SageMaker embedding inference
+A. Collect candidate text, batch it, and send it to SageMaker
+  -> B. SageMaker embedding inference
       -> tokenizer
       -> trained transformer model token embedding layer
       -> trained transformer model forward pass
       -> pooling
       -> L2-normalized embedding vector
       -> JSON response: {"embeddings": [[...]], "count": N}
-  -> C.Fargate semantic matching/search
+  -> C. Fargate semantic matching/search
       -> split returned vectors into canonical vectors + header vectors
       -> cosine similarity
       -> rank candidates
       -> threshold + confidence-gap decision
+      -> mapping JSON
+  -> D. Apply mapping JSON to the structured document
+      -> copy accepted source values into standardized fields
+      -> normalize values where needed
+  -> E. Final standardized business JSON
 ```
 
 Top-to-bottom execution pipeline:
@@ -335,7 +340,7 @@ Top-to-bottom execution pipeline:
 ```text
 Semantic Matching / Search (top to bottom = order of execution)
 |
-+-- A. Build embedding input text outside the model
++-- A. Collect candidate text, batch it, and send it to SageMaker
 |   +-- source header text: raw header + enriched meaning + sample data
 |   +-- canonical field text: display name + description + synonyms
 |   +-- Fargate combines canonical texts + header texts into one ordered list
@@ -383,8 +388,21 @@ Semantic Matching / Search (top to bottom = order of execution)
     +-- 10. Rank candidate headers
     |
     +-- 11. Apply similarity threshold + confidence gap
+    |
+    +-- 12. Produce mapping JSON
+        +-- canonical field -> source header/value, with score and validation result
+|
++-- D. Apply mapping JSON to the structured document
+|   +-- read Claude-normalized fields/tables
+|   +-- use accepted mappings to copy source values into canonical keys
+|   +-- normalize values where needed, such as dates, numbers, units, and decimals
+|
++-- E. Final standardized business JSON
+    +-- predictable schema for database storage, search, validation, or integration
 ```
-SageMaker creates embeddings only; Fargate performs the semantic search/ranking.
+SageMaker creates embeddings only. Fargate performs semantic matching, produces
+mapping JSON, and applies accepted mappings to build the final standardized
+business JSON.
 
 ### Step 1. Tokenizer: Raw Text To Token IDs
 
@@ -1003,6 +1021,150 @@ if top2_score is not None and (top1_score - top2_score) < config.confidence_gap:
 return "STRONG", "Passed threshold and confidence gap"
 ```
 
+After threshold and confidence-gap validation, the result is not the final
+business JSON yet. The immediate result is a mapping JSON: it says which source
+field/header should populate which standardized field.
+
+Example mapping JSON:
+
+```json
+{
+  "stage": "correction_mapping",
+  "mapping_status": "MAPPING_REQUIRED",
+  "proposed_mappings": [
+    {
+      "canonical": {
+        "key": "referenceNumber",
+        "name": "Reference Number",
+        "embedding_input": "Reference Number | Commercial invoice identifier | invoice no ref document id"
+      },
+      "matched_result": {
+        "header": "Ref #",
+        "label": "commercial invoice identifier",
+        "data": "2026/JUL/077",
+        "embedding_input": "Ref # | commercial invoice identifier | 2026/JUL/077",
+        "score": 0.91
+      },
+      "validation": {
+        "is_accepted": true,
+        "outcome": "STRONG",
+        "reason": "Passed threshold and confidence gap",
+        "top1_score": 0.91,
+        "top2_score": 0.42,
+        "score_gap": 0.49
+      }
+    }
+  ]
+}
+```
+
+That mapping JSON is then applied to the structured document JSON from the
+Claude normalization stage. The mapping tells the next step where to copy values
+from and which standardized key to write them into.
+
+Example apply-mapping input:
+
+```json
+{
+  "source_field": {
+    "header": "Ref #",
+    "enriched": "commercial invoice identifier",
+    "value": "2026/JUL/077"
+  },
+  "accepted_mapping": {
+    "canonical_key": "referenceNumber",
+    "source_header": "Ref #"
+  }
+}
+```
+
+Example final standardized business JSON:
+
+```json
+{
+  "documentType": "SupplierInvoice",
+  "referenceNumber": "INV-2026-001",
+  "issueDate": "2026-07-08",
+  "supplierName": "Acme Trading Ltd",
+  "currency": "USD",
+  "netAmount": 1250.00,
+  "taxAmount": 87.50,
+  "lineItems": [
+    {
+      "itemCode": "A100",
+      "quantity": 25,
+      "thicknessMeters": 0.0025
+    }
+  ]
+}
+```
+
+So the full flow is:
+
+```text
+semantic matching/search
+  -> mapping JSON
+  -> apply mappings to normalized source JSON
+  -> final standardized business JSON
+```
+
+Real project code for mapping proposals:
+
+`Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
+
+```python
+proposals.append(
+    {
+        "canonical": canonical_candidate,
+        "matched_result": matched_result,
+        "validation": validation,
+        "top_candidates": formatted_top_candidates,
+        "metadata": metadata,
+    }
+)
+```
+
+Real project code for turning accepted proposals into active mappings:
+
+`Backend/Fargate/app/pipeline/standardization/supplier_mill_certificate.py`
+
+```python
+def _mapping_from_proposal(proposal: dict[str, Any]) -> dict[str, Any] | None:
+    validation = proposal.get("validation")
+    if not isinstance(validation, dict) or not validation.get("is_accepted"):
+        return None
+    canonical = proposal.get("canonical")
+    matched_result = proposal.get("matched_result")
+    return {
+        "canonical_key": canonical.get("key"),
+        "source_header": matched_result.get("header"),
+        "source_label": matched_result.get("label"),
+        "source_value": matched_result.get("data"),
+        "mapping": proposal,
+    }
+```
+
+Real project code for producing the standardized result:
+
+`Backend/Fargate/app/pipeline/standardization/supplier_mill_certificate.py`
+
+```python
+def build_supplier_mill_certificate_standard(...):
+    mappings = _active_mappings(correction_mapping_result)
+    header = _build_header(structured_intermediate, mappings)
+    items = _build_items(structured_intermediate, mappings)
+    return {
+        "metadata": {...},
+        "header": header,
+        "items": items,
+        "mapping_summary": {
+            "active_mapping_count": len(mappings),
+            "header_field_count": len(header),
+            "item_count": len(items),
+        },
+    }
+```
+
 ```text
 Training path
 triplets
@@ -1026,6 +1188,9 @@ L2-normalized canonical vectors + L2-normalized header vectors
   -> Fargate cosine similarity compares direction/meaning
   -> rank candidate headers
   -> threshold and confidence-gap rules decide outcome
+  -> mapping JSON records accepted canonical-to-source mappings
+  -> apply mappings to normalized source JSON
+  -> final standardized business JSON
 ```
 
 Cosine similarity is:
