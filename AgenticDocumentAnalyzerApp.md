@@ -300,46 +300,85 @@ Recall that **Claude LLM Structure Normalization layer** already gave every sour
 
 The Semantic Matching Layer converts both the source text and each standardized field description into embedding vectors — lists of numbers where similar meanings point in similar directions — and then ranks which standardized field is closest in meaning. That is how `"Invoice No."`, `"Ref #"`, and `"Document ID"` can all map to `referenceNumber` without their words ever matching, while still keeping `Invoice No.` and `DO No.` apart even though both contain `No.`.
 
-### How Embeddings are produced and compared (How Semantic search is working)
+### How Embeddings are Produced, Then Compared
 
-The model cannot directly understand raw text. It first converts text into
-token IDs, then into vectors, then runs those vectors through transformer
-layers, then pools the token vectors into one vector for the full text.
+Semantic matching has two different parts that are easy to mix up:
+
+1. **SageMaker embedding inference** creates vectors from text.
+2. **Fargate semantic matching/search** compares those vectors, ranks candidates,
+   and applies threshold/gap rules.
+
+The tokenizer, token embedding layer, transformer forward pass, pooling, and L2
+normalization belong to embedding generation. The actual semantic search starts
+after SageMaker returns vectors to the Fargate worker.
 
 ```text
-raw text -> tokenizer -> token IDs -> embedding layer
-         -> forward pass through transformer layers
-         -> per-token vectors -> pooling -> one vector
+raw text
+  -> SageMaker embedding inference
+      -> tokenizer
+      -> AutoModel token embedding layer
+      -> AutoModel transformer forward pass
+      -> pooling
+      -> L2-normalized embedding vector
+      -> JSON response: {"embeddings": [[...]], "count": N}
+  -> Fargate semantic matching/search
+      -> split returned vectors into canonical vectors + header vectors
+      -> cosine similarity
+      -> rank candidates
+      -> threshold + confidence-gap decision
 ```
 
 Top-to-bottom execution pipeline:
 
 ```text
-Pipeline (top to bottom = order of execution)
+Semantic Matching / Search (top to bottom = order of execution)
 |
-+-- 1. Tokenizer
-|   +-- raw text -> token IDs
-|       e.g. "cool" -> [4658]
++-- A. Build embedding input text outside the model
+|   +-- source header text: raw header + enriched meaning + sample data
+|   +-- canonical field text: display name + description + synonyms
 |
-+-- 2. Token Embedding Layer (part of the model, first layer) <-- inside the model
-|   +-- token IDs -> per-token vectors (untrained context, just lookup)
-|       [4658] -> [0.02, -0.45, ...]
++-- B. SageMaker embedding inference
+|   |
+|   +-- 1. Tokenizer, outside the neural model
+|   |   +-- raw text -> token IDs + attention mask
+|   |       e.g. "cool" -> [4658]
+|   |
+|   +-- 2. Token Embedding Layer, inside Hugging Face AutoModel
+|   |   +-- token IDs -> base per-token vectors
+|   |       [4658] -> [0.02, -0.45, ...]
+|   |
+|   +-- 3. Transformer Forward Pass, inside Hugging Face AutoModel
+|   |   +-- base per-token vectors -> context-aware per-token vectors
+|   |       still one vector per token, now enriched by the whole sequence
+|   |
+|   +-- 4. Pooling, outside AutoModel but inside inference.py
+|   |   +-- context-aware per-token vectors -> one text vector
+|   |       project supports: CLS pooling and mean pooling
+|   |
+|   +-- 5. L2 Normalization
+|   |   +-- pooled vector -> final unit-length sentence/document embedding
+|   |
+|   +-- 6. Return JSON embeddings
+|       +-- {"embeddings": [[0.012, -0.045, 0.083, "..."]], "count": N}
 |
-+-- 3. Forward Pass (transformer layers: attention + FFN, stacked N times) <-- inside the model
-|   +-- per-token vectors -> per-token vectors (now context-aware)
-|       still one vector per token, just enriched by the whole sequence
-|
-+-- 4. Pooling (post-processing, not a neural layer) <-- outside the model
-    +-- per-token vectors -> one vector
-        strategies: mean pooling / CLS pooling / last-token pooling
-        |
-        +-- "Sentence / Document Embedding" <-- this is data, a vector, not a layer
-            this is a result, not a separate layer in the stack
++-- C. Fargate semantic matching/search
+    |
+    +-- 7. Call SageMaker endpoint for canonical + header texts
+    |
+    +-- 8. Receive returned embedding vectors
+    |   +-- canonical vectors: standardized field descriptions
+    |   +-- header vectors: source header + enriched meaning + sample data
+    |
+    +-- 9. Compare canonical vectors vs header vectors with cosine similarity
+    |
+    +-- 10. Rank candidate headers
+    |
+    +-- 11. Apply similarity threshold + confidence gap
 ```
 
-The diagram is the single source of truth for execution order. The details
-below explain each step once and keep the golden notes under the step where
-they belong.
+The diagram is the single source of truth for execution order. The important
+boundary is this: SageMaker creates embeddings only; Fargate performs the
+semantic search/ranking.
 
 ### Step 1. Tokenizer: Raw Text To Token IDs
 
@@ -622,7 +661,7 @@ When mean pooling can hurt:
 - Score range can become compressed.
 
 Last-token pooling uses the final token vector. It is common in some model
-families but is not the main project behavior here.
+families, but this project does not currently implement it.
 
 The project supports both `cls` and `mean`. The chosen mode is saved with the
 model in:
@@ -710,6 +749,77 @@ Real project code:
 embeddings = F.normalize(pooled, p=2, dim=1)
 ```
 
+After this line, the SageMaker inference layer has finished its ML work. It has
+converted text into L2-normalized vectors. It does not compare fields, rank
+headers, apply thresholds, or decide mappings.
+
+The SageMaker endpoint returns JSON embeddings:
+
+```json
+{
+  "embeddings": [
+    [0.012, -0.045, 0.083, 0.019, "..."]
+  ],
+  "count": 1
+}
+```
+
+In the real matching flow, Fargate sends both canonical field texts and source
+header texts to the SageMaker endpoint. SageMaker returns one vector per input
+text. Fargate then splits the returned vectors back into two groups.
+
+Example canonical vectors returned from SageMaker:
+
+```json
+{
+  "canonical_vectors": [
+    {
+      "canonical_key": "referenceNumber",
+      "embedding_input": "Reference Number | Commercial invoice identifier | invoice no ref document id",
+      "vector": [0.018, -0.031, 0.076, 0.044, "..."]
+    },
+    {
+      "canonical_key": "netAmount",
+      "embedding_input": "Net Amount | Net amount before tax | subtotal amount excluding tax",
+      "vector": [-0.022, 0.057, 0.011, -0.064, "..."]
+    }
+  ]
+}
+```
+
+Example header vectors returned from SageMaker:
+
+```json
+{
+  "header_vectors": [
+    {
+      "source_header": "Ref #",
+      "enriched": "commercial invoice identifier",
+      "sample_data": "2026/JUL/077",
+      "embedding_input": "Ref # | commercial invoice identifier | 2026/JUL/077",
+      "vector": [0.021, -0.028, 0.081, 0.039, "..."]
+    },
+    {
+      "source_header": "Net",
+      "enriched": "net amount before tax",
+      "sample_data": "USD 1250",
+      "embedding_input": "Net | net amount before tax | USD 1250",
+      "vector": [-0.019, 0.061, 0.008, -0.069, "..."]
+    }
+  ]
+}
+```
+
+Those vectors are the handoff point:
+
+```text
+SageMaker inference layer ends here:
+text -> tokenizer -> AutoModel -> pooling -> L2-normalized vector -> JSON response
+
+Fargate matching layer starts here:
+canonical vectors + header vectors -> cosine similarity -> ranking -> threshold/gap decision
+```
+
 For the live model-and-matching path, keep three steps separate:
 
 1. Training normalizes anchor, positive, and negative embeddings before cosine
@@ -717,6 +827,67 @@ For the live model-and-matching path, keep three steps separate:
 2. SageMaker inference normalizes embeddings and ends when it returns vectors.
 3. Downstream Fargate semantic matching/search consumes those vectors and
    compares direction/meaning with cosine similarity.
+
+Real Fargate endpoint call:
+
+`Backend/Fargate/app/pipeline/correction_mapping/embedding_client.py`
+
+```python
+return self._runtime_client.invoke_endpoint(
+    EndpointName=self._endpoint_name,
+    ContentType="application/json",
+    Body=json.dumps({"inputs": chunk}).encode("utf-8"),
+)
+```
+
+Real Fargate cosine comparison:
+
+`Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
+
+```python
+def cosine_similarity(left: list[float] | None, right: list[float] | None) -> float:
+    if not left or not right or len(left) != len(right):
+        return -1.0
+
+    dot = 0.0
+    left_norm = 0.0
+    right_norm = 0.0
+    for left_value, right_value in zip(left, right):
+        dot += left_value * right_value
+        left_norm += left_value * left_value
+        right_norm += right_value * right_value
+
+    if left_norm == 0 or right_norm == 0:
+        return -1.0
+    return dot / (math.sqrt(left_norm) * math.sqrt(right_norm))
+```
+
+Real Fargate embedding split:
+
+`Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
+
+```python
+texts = [item["embedding_input"] for item in canonical_candidates]
+texts.extend(item["embedding_text"] for item in header_candidates)
+embeddings = embedding_client.embed_texts(texts)
+
+canonical_vectors = embeddings[: len(canonical_candidates)]
+header_vectors = embeddings[len(canonical_candidates) :]
+```
+
+Real Fargate threshold/gap decision:
+
+`Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
+
+```python
+if top1_score is None or top1_score < config.similarity_threshold:
+    return "NO_MATCH", "Below similarity threshold"
+
+if top2_score is not None and (top1_score - top2_score) < config.confidence_gap:
+    return "AMBIGUOUS", "Top1 too close to Top2"
+
+return "STRONG", "Passed threshold and confidence gap"
+```
 
 ```text
 Training path
