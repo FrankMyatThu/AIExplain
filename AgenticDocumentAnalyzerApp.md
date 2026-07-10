@@ -336,8 +336,12 @@ Semantic Matching / Search (top to bottom = order of execution)
 +-- A. Build embedding input text outside the model
 |   +-- source header text: raw header + enriched meaning + sample data
 |   +-- canonical field text: display name + description + synonyms
+|   +-- Fargate combines canonical texts + header texts into one ordered list
+|   +-- Fargate sends that ordered list in controlled chunks
+|   +-- token limit per text: embedding_max_len truncates each individual text
+|   +-- batch/payload limit per request: embedding_batch_size limits each call
 |
-+-- B. SageMaker embedding inference
++-- B. SageMaker embedding inference for each chunk
 |   |
 |   +-- 1. Tokenizer, before the neural model
 |   |   +-- raw text -> token IDs + attention mask
