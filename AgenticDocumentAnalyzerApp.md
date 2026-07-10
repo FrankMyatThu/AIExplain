@@ -316,8 +316,8 @@ after SageMaker returns vectors to the Fargate worker.
 raw text
   -> SageMaker embedding inference
       -> tokenizer
-      -> AutoModel token embedding layer
-      -> AutoModel transformer forward pass
+      -> trained transformer model token embedding layer
+      -> trained transformer model forward pass
       -> pooling
       -> L2-normalized embedding vector
       -> JSON response: {"embeddings": [[...]], "count": N}
@@ -343,15 +343,15 @@ Semantic Matching / Search (top to bottom = order of execution)
 |   |   +-- raw text -> token IDs + attention mask
 |   |       e.g. "cool" -> [4658]
 |   |
-|   +-- 2. Token Embedding Layer, inside Hugging Face AutoModel
+|   +-- 2. Token Embedding Layer, inside the trained transformer model
 |   |   +-- token IDs -> base per-token vectors
 |   |       [4658] -> [0.02, -0.45, ...]
 |   |
-|   +-- 3. Transformer Forward Pass, inside Hugging Face AutoModel
+|   +-- 3. Transformer Forward Pass, inside the trained transformer model
 |   |   +-- base per-token vectors -> context-aware per-token vectors
 |   |       still one vector per token, now enriched by the whole sequence
 |   |
-|   +-- 4. Pooling, outside AutoModel but inside inference.py
+|   +-- 4. Pooling, outside the trained transformer model but inside inference.py
 |   |   +-- context-aware per-token vectors -> one text vector
 |   |       project supports: CLS pooling and mean pooling
 |   |
@@ -814,7 +814,7 @@ Those vectors are the handoff point:
 
 ```text
 SageMaker inference layer ends here:
-text -> tokenizer -> AutoModel -> pooling -> L2-normalized vector -> JSON response
+text -> tokenizer -> trained transformer model -> pooling -> L2-normalized vector -> JSON response
 
 Fargate matching layer starts here:
 canonical vectors + header vectors -> cosine similarity -> ranking -> threshold/gap decision
