@@ -312,16 +312,18 @@ The tokenizer, token embedding layer, transformer forward pass, pooling, and L2
 normalization belong to embedding generation. The actual semantic search starts
 after SageMaker returns vectors to the Fargate worker.
 
+Summary work flow:
+
 ```text
-raw text
-  -> SageMaker embedding inference
+A.raw text
+  -> B.SageMaker embedding inference
       -> tokenizer
       -> trained transformer model token embedding layer
       -> trained transformer model forward pass
       -> pooling
       -> L2-normalized embedding vector
       -> JSON response: {"embeddings": [[...]], "count": N}
-  -> Fargate semantic matching/search
+  -> C.Fargate semantic matching/search
       -> split returned vectors into canonical vectors + header vectors
       -> cosine similarity
       -> rank candidates
@@ -382,10 +384,7 @@ Semantic Matching / Search (top to bottom = order of execution)
     |
     +-- 11. Apply similarity threshold + confidence gap
 ```
-
-The diagram is the single source of truth for execution order. The important
-boundary is this: SageMaker creates embeddings only; Fargate performs the
-semantic search/ranking.
+SageMaker creates embeddings only; Fargate performs the semantic search/ranking.
 
 ### Step 1. Tokenizer: Raw Text To Token IDs
 
