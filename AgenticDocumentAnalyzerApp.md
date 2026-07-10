@@ -345,11 +345,14 @@ Semantic Matching / Search (top to bottom = order of execution)
 |   |
 |   +-- 1. Tokenizer, before the neural model
 |   |   +-- raw text -> token IDs + attention mask
-|   |       e.g. "cool" -> [4658]
+|   |       e.g. "Ref # | commercial invoice identifier | 2026/JUL/077"
+|   |       token IDs      -> [101, 25416, 1001, 1064, 3293, ..., 102, 0, 0]
+|   |       attention mask -> [1,   1,     1,    1,    1,    ..., 1,   0, 0]
 |   |
 |   +-- 2. Token Embedding Layer, first layer inside the trained transformer model
 |   |   +-- token IDs -> base per-token vectors
-|   |       [4658] -> [0.02, -0.45, ...]
+|   |       one token ID -> one base vector
+|   |       25416 -> [0.02, -0.45, ...]
 |   |
 |   +-- 3. Transformer Layers / Forward Pass, inside the trained transformer model
 |   |   +-- base per-token vectors -> context-aware per-token vectors
@@ -393,11 +396,23 @@ that the model can accept.
 Example:
 
 ```text
-"cool" -> [4658]
+raw text:
+"Ref # | commercial invoice identifier | 2026/JUL/077"
+
+tokens:
+[CLS], ref, #, |, commercial, in, ##vo, ##ice, id, ##ent, ##ifier, |,
+202, ##6, /, jul, /, 07, ##7, [SEP], [PAD], [PAD]
+
+token IDs:
+[101, 25416, 1001, 1064, 3293, 1999, 6767, 6610, 8909, 4765,
+ 18095, 1064, 16798, 2575, 1013, 21650, 1013, 5718, 2581, 102, 0, 0]
+
+attention mask:
+[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]
 ```
 
-The number `4658` is not the meaning of the word. It is an ID in the tokenizer
-vocabulary. The ID tells the model which learned token row to look up in the
+The numbers are not the meaning of the text. They are IDs in the tokenizer
+vocabulary. Each ID tells the model which learned token row to look up in the
 token embedding layer.
 
 A token is a piece of text after tokenization. It may be:
@@ -428,7 +443,7 @@ For uncommon words, the tokenizer can split one word into subword pieces:
 
 ```text
 "embeddings" -> [embed, ##ding, s]
-"embeddings are cool" -> [embed, ##ding, s, are, cool]
+"referenceNumber" -> [reference, ##number]
 "certification" -> cert + ##ification
 "ASTMXYZ9000" -> smaller known chunks, digits, or subword pieces
 ```
@@ -448,8 +463,8 @@ An attention mask tells the model which token positions are real text and which
 positions are padding:
 
 ```text
-real token -> 1
-padding    -> 0
+1 -> real token the model should pay attention to
+0 -> padding token added only to make batch shapes line up
 ```
 
 Padding exists only to make batch shapes line up. It should not contribute
@@ -469,7 +484,7 @@ converts token IDs into vectors.
 Conceptually, it behaves like a learned lookup table:
 
 ```text
-token ID 4658 -> [0.02, -0.45, 0.18, ...]
+token ID 25416 -> [0.02, -0.45, 0.18, ...]
 ```
 
 At this point, the vector is not yet context-aware. It is the learned base
