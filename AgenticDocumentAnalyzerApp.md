@@ -126,7 +126,7 @@ I use AWS Textract because the system needs more than plain OCR text. In additio
 
 Small fonts, subscripts, superscripts, and exponent values can sometimes be difficult for OCR to recognize accurately. To improve extraction quality, I preprocess the document images using Python[toupdate] to produce clearer, sharper, and higher-contrast images before sending them to Textract.
 
-Although image enhancement often improves OCR accuracy, it can occasionally introduce artifacts such as distortion or extra spacing. Instead of replacing the original OCR result, I keep both versions for later verification.
+Although image enhancement often improves OCR accuracy, it can occasionally introduce artifacts such as distortion or extra spacing. Instead of replacing the original OCR result[toupdate], I keep both versions for later verification.
 
 ### 1.3 Native PDF Text
 
