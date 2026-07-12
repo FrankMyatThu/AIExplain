@@ -24,14 +24,14 @@ However, the business systems cannot work directly with these inconsistent docum
 
 ### The Problem vs. The Goal/Solution
 
-To make this concrete, imagine the **same business document** (a supplier invoice) arriving from two different suppliers. Real documents rarely put everything in one neat table — the same facts are scattered across the header, footer, legends, notes, and tables that are split across the page.
+To make this concrete[toupdate], imagine the **same business document** (a supplier invoice) arriving from two different suppliers. Real documents rarely put everything in one neat table — the same facts are scattered across the header, footer, legends, notes, and tables that are split across the page.
 
 **Supplier A** puts the company in a title block, some facts in a footer, uses a legend to define a scaling factor, and splits the line items across two side-by-side tables:
 
 ```text
 ========================= PAGE HEADER =========================
 ACME TRADING LTD
-123 Harbour Road, Singapore
+123 Harbour Road, Singapore[toupdate]
 
 Invoice No. : INV-2026-001        Date : 08/07/2026   Ccy : USD
 
@@ -61,7 +61,7 @@ Both documents mean exactly the same thing, but almost nothing lines up:
 * Key facts hide in a **title block** (`Acme Trading Ltd`), a **footer** (net amount and tax), and a **legend** rather than in clean key-value pairs.
 * The line items are **split across two tables** in Supplier A but written **inline** in Supplier B.
 * The thickness uses a **scaling legend** (`25` with `¹ = 10⁻⁴ m` → `0.0025`) in Supplier A but a **direct value** (`0.0025`) in Supplier B.
-* Even numbers differ: Supplier A writes tax as `87,50` (comma decimal), Supplier B as `87.50`.
+* Even numbers differ: Supplier A writes tax as `87,50` (comma decimal)[toupdate], Supplier B as `87.50`.
 
 **The goal** is to convert every one of these variations into one predictable, standardized record that business systems can trust. For example, a single JSON output:
 
@@ -116,7 +116,7 @@ In this article, I'll share how I built this system and the ideas behind its arc
 
 Most documents in my project come from different suppliers as PDF files. Some contain selectable text, while others are scanned images. Since AI accuracy depends heavily on the quality of the extracted data, the first stage focuses on obtaining the most reliable document content.
 
-**One important lesson I learned is that no single extraction method is perfect.** Each technique has its own strengths and weaknesses, so my system combines multiple extraction methods and later verifies the results against one another.
+**One important lesson I learned is that no single extraction method[toupdate] is perfect.** Each technique has its own strengths and weaknesses, so my system combines multiple extraction methods and later verifies the results against one another.
 
 ### 1.1 AWS Textract
 
@@ -124,7 +124,7 @@ I use AWS Textract because the system needs more than plain OCR text. In additio
 
 ### 1.2 Enhanced OCR Images
 
-Small fonts, subscripts, superscripts, and exponent values can sometimes be difficult for OCR to recognize accurately. To improve extraction quality, I preprocess the document images using Python to produce clearer, sharper, and higher-contrast images before sending them to Textract.
+Small fonts, subscripts, superscripts, and exponent values can sometimes be difficult for OCR to recognize accurately. To improve extraction quality, I preprocess the document images using Python[toupdate] to produce clearer, sharper, and higher-contrast images before sending them to Textract.
 
 Although image enhancement often improves OCR accuracy, it can occasionally introduce artifacts such as distortion or extra spacing. Instead of replacing the original OCR result, I keep both versions for later verification.
 
