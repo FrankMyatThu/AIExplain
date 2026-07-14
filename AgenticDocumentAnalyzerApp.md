@@ -24,14 +24,14 @@ However, the business systems cannot work directly with these inconsistent docum
 
 ### The Problem vs. The Goal/Solution
 
-To make this concrete[toupdate], imagine the **same business document** (a supplier invoice) arriving from two different suppliers. Real documents rarely put everything in one neat table — the same facts are scattered across the header, footer, legends, notes, and tables that are split across the page.
+To see this more clearly, let's look at **the same type of business document** (a supplier invoice) arriving from two different suppliers. Real documents rarely put everything in one neat table — the same facts are scattered across the header, footer, legends, notes, and tables that are split across the page.
 
 **Supplier A** puts the company in a title block, some facts in a footer, uses a legend to define a scaling factor, and splits the line items across two side-by-side tables:
 
 ```text
 ========================= PAGE HEADER =========================
 ACME TRADING LTD
-123 Harbour Road, Singapore[toupdate]
+123 Harbour Road, Singapore
 
 Invoice No. : INV-2026-001        Date : 08/07/2026   Ccy : USD
 
