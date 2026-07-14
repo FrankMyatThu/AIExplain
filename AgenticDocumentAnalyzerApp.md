@@ -116,7 +116,7 @@ In this article, I'll share how I built this system and the ideas behind its arc
 
 Most documents in my project come from different suppliers as PDF files. Some contain selectable text, while others are scanned images. Since AI accuracy depends heavily on the quality of the extracted data, the first stage focuses on obtaining the most reliable document content.
 
-**One important lesson I learned is that no single extraction method[toupdate] is perfect.** Each technique has its own strengths and weaknesses, so my system combines multiple extraction methods and later verifies the results against one another.
+**One important lesson I learned is that no single method for extracting data from PDF files is perfect.** Each technique has its own strengths and weaknesses, so my system combines multiple extraction methods and later verifies the results against one another.
 
 ### 1.1 AWS Textract
 
