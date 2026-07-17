@@ -335,26 +335,26 @@ The Semantic Matching Layer converts both the source text and each standardized 
 
 Semantic matching has two different parts that are easy to mix up:
 
-1. **SageMaker embedding inference** creates vectors from text.
-2. **Fargate semantic matching/search** compares those vectors, ranks candidates,
+1. **The ML inference endpoint (AWS SageMaker)** runs embedding inference to create vectors from text.
+2. **The backend worker (AWS serverless container)** performs semantic matching/search: it compares those vectors, ranks candidates,
    and applies threshold/gap rules.
 
 The tokenizer, token embedding layer, transformer forward pass, pooling, and L2
 normalization belong to embedding generation. The actual semantic search starts
-after SageMaker returns vectors to the Fargate worker.
+after the ML inference endpoint returns vectors to the backend worker.
 
 Summary work flow:
 
 ```text
-A. Collect candidate text, batch it, and send it to SageMaker
-  -> B. SageMaker embedding inference
+A. Collect candidate text, batch it, and send it to the ML inference endpoint
+  -> B. ML inference endpoint embedding inference
       -> tokenizer
       -> trained transformer model token embedding layer
       -> trained transformer model forward pass
       -> pooling
       -> L2-normalized embedding vector
       -> JSON response: {"embeddings": [[...]], "count": N}
-  -> C. Fargate semantic matching/search
+  -> C. Backend worker semantic matching/search
       -> split returned vectors into canonical vectors + header vectors
       -> cosine similarity
       -> rank candidates
@@ -371,15 +371,15 @@ Top-to-bottom execution pipeline:
 ```text
 Semantic Matching / Search (top to bottom = order of execution)
 |
-+-- A. Collect candidate text, batch it, and send it to SageMaker
++-- A. Collect candidate text, batch it, and send it to the ML inference endpoint
 |   +-- source header text: raw header + enriched meaning + sample data
 |   +-- canonical field text: display name + description + synonyms
-|   +-- Fargate combines canonical texts + header texts into one ordered list
-|   +-- Fargate sends that ordered list in controlled chunks
+|   +-- Backend worker combines canonical texts + header texts into one ordered list
+|   +-- Backend worker sends that ordered list in controlled chunks
 |   +-- token limit per text: embedding_max_len truncates each individual text
 |   +-- batch/payload limit per request: embedding_batch_size limits each call
 |
-+-- B. SageMaker embedding inference for each chunk
++-- B. ML inference endpoint embedding inference for each chunk
 |   |
 |   +-- 1. Tokenizer, before the neural model
 |   |   +-- raw text -> token IDs + attention mask
@@ -406,9 +406,9 @@ Semantic Matching / Search (top to bottom = order of execution)
 |   +-- 6. Return JSON embeddings
 |       +-- {"embeddings": [[0.012, -0.045, 0.083, "..."]], "count": N}
 |
-+-- C. Fargate semantic matching/search
++-- C. Backend worker semantic matching/search
     |
-    +-- 7. Call SageMaker endpoint for canonical + header texts
+    +-- 7. Call the ML inference endpoint for canonical + header texts
     |
     +-- 8. Receive returned embedding vectors
     |   +-- canonical vectors: standardized field descriptions
@@ -431,7 +431,7 @@ Semantic Matching / Search (top to bottom = order of execution)
 +-- E. Final standardized business JSON
     +-- predictable schema for database storage, search, validation, or integration
 ```
-SageMaker creates embeddings only. Fargate performs semantic matching, produces
+The ML inference endpoint creates embeddings only. The backend worker performs semantic matching, produces
 mapping JSON, and applies accepted mappings to build the final standardized
 business JSON.
 
@@ -737,8 +737,8 @@ model in:
 output_model/hf_triplet_model/pooling.json
 ```
 
-Training, local evaluation, and SageMaker inference must use the same pooling
-mode. Previous SageMaker inference comments described CLS-only pooling. That is
+Training, local evaluation, and the ML inference endpoint must use the same pooling
+mode. Previous ML inference endpoint comments described CLS-only pooling. That is
 still valid when pooling mode is `cls`, but the current implementation supports
 both `cls` and `mean` and loads the selected mode from the model artifact.
 
@@ -816,11 +816,11 @@ Real project code:
 embeddings = F.normalize(pooled, p=2, dim=1)
 ```
 
-After this line, the SageMaker inference layer has finished its ML work. It has
+After this line, the ML inference endpoint has finished its ML work. It has
 converted text into L2-normalized vectors. It does not compare fields, rank
 headers, apply thresholds, or decide mappings.
 
-The SageMaker endpoint returns JSON embeddings:
+The ML inference endpoint returns JSON embeddings:
 
 ```json
 {
@@ -831,11 +831,11 @@ The SageMaker endpoint returns JSON embeddings:
 }
 ```
 
-In the real matching flow, Fargate sends both canonical field texts and source
-header texts to the SageMaker endpoint. SageMaker returns one vector per input
-text. Fargate then splits the returned vectors back into two groups.
+In the real matching flow, the backend worker sends both canonical field texts and source
+header texts to the ML inference endpoint. The endpoint returns one vector per input
+text. The backend worker then splits the returned vectors back into two groups.
 
-Example canonical vectors returned from SageMaker:
+Example canonical vectors returned from the ML inference endpoint:
 
 ```json
 {
@@ -854,7 +854,7 @@ Example canonical vectors returned from SageMaker:
 }
 ```
 
-Example header vectors returned from SageMaker:
+Example header vectors returned from the ML inference endpoint:
 
 ```json
 {
@@ -880,16 +880,16 @@ Example header vectors returned from SageMaker:
 Those vectors are the handoff point:
 
 ```text
-SageMaker inference layer ends here:
+ML inference endpoint ends here:
 text -> tokenizer -> trained transformer model -> pooling -> L2-normalized vector -> JSON response
 
-Fargate matching layer starts here:
+Backend worker matching layer starts here:
 canonical vectors + header vectors -> cosine similarity -> ranking -> threshold/gap decision
 ```
 
-### Why Fargate Combines Canonical Texts And Header Texts
+### Why the Backend Worker Combines Canonical Texts And Header Texts
 
-Fargate does not call SageMaker separately for every canonical field and every
+The backend worker does not call the ML inference endpoint separately for every canonical field and every
 source header. It first combines the embedding input texts into one ordered list:
 
 ```text
@@ -901,7 +901,7 @@ source header. It first combines the embedding input texts into one ordered list
 ]
 ```
 
-SageMaker returns embeddings in the same order:
+The ML inference endpoint returns embeddings in the same order:
 
 ```text
 [
@@ -912,7 +912,7 @@ SageMaker returns embeddings in the same order:
 ]
 ```
 
-Then Fargate splits the returned list back into two groups:
+Then the backend worker splits the returned list back into two groups:
 
 ```text
 canonical_vectors = first part
@@ -921,7 +921,7 @@ header_vectors = second part
 
 This design is intentional:
 
-- It reduces repeated network calls between Fargate and SageMaker.
+- It reduces repeated network calls between the backend worker and the ML inference endpoint.
 - It keeps embedding generation batched, which is usually faster than many tiny
   requests.
 - It makes retry behavior simpler because each chunk is handled by one retry
@@ -935,10 +935,10 @@ There are two limits to understand:
 
 1. **Token limit per text**: `embedding_max_len` applies to each individual text
    string. Long text is truncated before the model sees it.
-2. **Batch/payload limit per request**: Fargate still sends the combined list in
-   controlled chunks so one SageMaker request does not become too large.
+2. **Batch/payload limit per request**: the backend worker still sends the combined list in
+   controlled chunks so one ML inference endpoint request does not become too large.
 
-Real SageMaker inference token limit:
+Real ML inference endpoint token limit:
 
 `Backend/ML/millcert-header-model/inference/inference.py`
 
@@ -952,7 +952,7 @@ enc = tokenizer(
 )
 ```
 
-Real Fargate batch control:
+Real backend worker batch control:
 
 `Backend/Fargate/app/pipeline/correction_mapping/embedding_client.py`
 
@@ -962,7 +962,7 @@ for index in range(0, len(cleaned_texts), self._batch_size):
     response = self._invoke_with_retry(chunk)
 ```
 
-Real Fargate default batch size:
+Real backend worker default batch size:
 
 `Backend/Fargate/app/pipeline/correction_mapping/config.py`
 
@@ -970,7 +970,7 @@ Real Fargate default batch size:
 embedding_batch_size: int = 5
 ```
 
-Real Fargate combine-then-split logic:
+Real backend worker combine-then-split logic:
 
 `Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
 
@@ -987,11 +987,11 @@ For the live model-and-matching path, keep three steps separate:
 
 1. Training normalizes anchor, positive, and negative embeddings before cosine
    triplet loss compares them.
-2. SageMaker inference normalizes embeddings and ends when it returns vectors.
-3. Downstream Fargate semantic matching/search consumes those vectors and
+2. The ML inference endpoint normalizes embeddings and ends when it returns vectors.
+3. Downstream backend worker semantic matching/search consumes those vectors and
    compares direction/meaning with cosine similarity.
 
-Real Fargate endpoint call:
+Real backend worker endpoint call:
 
 `Backend/Fargate/app/pipeline/correction_mapping/embedding_client.py`
 
@@ -1003,7 +1003,7 @@ return self._runtime_client.invoke_endpoint(
 )
 ```
 
-Real Fargate cosine comparison:
+Real backend worker cosine comparison:
 
 `Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
 
@@ -1025,7 +1025,7 @@ def cosine_similarity(left: list[float] | None, right: list[float] | None) -> fl
     return dot / (math.sqrt(left_norm) * math.sqrt(right_norm))
 ```
 
-Real Fargate embedding split:
+Real backend worker embedding split:
 
 `Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
 
@@ -1038,7 +1038,7 @@ canonical_vectors = embeddings[: len(canonical_candidates)]
 header_vectors = embeddings[len(canonical_candidates) :]
 ```
 
-Real Fargate threshold/gap decision:
+Real backend worker threshold/gap decision:
 
 `Backend/Fargate/app/pipeline/correction_mapping/proposals.py`
 
@@ -1206,9 +1206,9 @@ triplets
   -> cosine triplet loss compares anchor / positive / negative
   -> optimizer updates model weights
 
-SageMaker inference path
+ML inference endpoint path
 canonical text + source header text
-  -> SageMaker tokenizer
+  -> ML inference endpoint tokenizer
   -> trained transformer model
   -> pooling
   -> L2 normalize returned embeddings
@@ -1216,7 +1216,7 @@ canonical text + source header text
 
 Downstream semantic matching/search path
 L2-normalized canonical vectors + L2-normalized header vectors
-  -> Fargate cosine similarity compares direction/meaning
+  -> Backend worker cosine similarity compares direction/meaning
   -> rank candidate headers
   -> threshold and confidence-gap rules decide outcome
   -> mapping JSON records accepted canonical-to-source mappings
