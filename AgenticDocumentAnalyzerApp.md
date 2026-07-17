@@ -124,9 +124,40 @@ I use AWS Textract because the system needs more than plain OCR text. In additio
 
 ### 1.2 Enhanced OCR Images
 
-Small fonts, subscripts, superscripts, and exponent values can sometimes be difficult for OCR to recognize accurately. To improve extraction quality, I preprocess the document images using Python[toupdate] to produce clearer, sharper, and higher-contrast images before sending them to Textract.
+Small fonts, subscripts, superscripts, and exponent values can sometimes be difficult for OCR to recognize accurately. To improve extraction quality, I preprocess the document images using using two Python libraries to produce clearer, sharper, and higher-contrast images before sending them to Textract.
 
-Although image enhancement often improves OCR accuracy, it can occasionally introduce artifacts such as distortion or extra spacing. Instead of replacing the original OCR result[toupdate], I keep both versions for later verification.
+- **pdf2image** (backed by the Poppler renderer) rasterizes each PDF page into an image at a high DPI, so even small print stays legible. Think of it as *taking a sharp photo* of the page. 
+
+```python
+from pdf2image import convert_from_path
+
+images = convert_from_path(
+    pdf_path,
+    dpi=config.dpi,                 # high DPI keeps small print legible
+    poppler_path=config.poppler_path,
+    first_page=page_number,         # render one page at a time
+    last_page=page_number,
+)
+rendered_page = images[0]
+```
+
+- **Pillow (PIL)** then *cleans that photo* for OCR: convert to grayscale, stretch contrast so faint ink stands out, sharpen letter edges, thicken thin strokes so weak characters don't break apart, and finally threshold to crisp black-and-white before encoding a TIFF for Textract.
+
+```python
+from PIL import ImageFilter, ImageOps
+
+processed = rendered_page.convert("L")                 # grayscale: light/dark only
+if config.apply_autocontrast:
+    processed = ImageOps.autocontrast(processed)       # brighten faint ink
+if config.unsharp_enabled:
+    processed = processed.filter(ImageFilter.UnsharpMask(...))      # sharpen text edges
+if config.bold_minfilter_enabled:
+    processed = processed.filter(ImageFilter.MinFilter(size=size))  # thicken thin text
+if config.bilevel_enabled:
+    processed = processed.point(lambda p: 255 if p >= threshold else 0, mode="1")  # pure B/W
+```
+
+Although image enhancement often improves OCR accuracy, it can occasionally introduce artifacts such as distortion or extra spacing. So instead of replacing the original result with the enhanced-image result, I run Textract on both — the source PDF page and the enhanced image — and keep the two outputs side by side.
 
 ### 1.3 Native PDF Text
 
