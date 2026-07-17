@@ -22,7 +22,7 @@ Although the business meaning is the same, the layout, terminology, and data pre
 
 However, the business systems cannot work directly with these inconsistent documents. They require the information to be converted into a single standardized format before it can be stored, searched, validated, or integrated with other systems.
 
-### The Problem vs. The Goal/Solution
+### The Problem vs. The Goal
 
 To see this more clearly, let's look at **the same type of business document** (a supplier invoice) arriving from two different suppliers. Real documents rarely put everything in one neat table — the same facts are scattered across the header, footer, legends, notes, and tables that are split across the page.
 
@@ -61,7 +61,7 @@ Both documents mean exactly the same thing, but almost nothing lines up:
 * Key facts hide in a **title block** (`Acme Trading Ltd`), a **footer** (net amount and tax), and a **legend** rather than in clean key-value pairs.
 * The line items are **split across two tables** in Supplier A but written **inline** in Supplier B.
 * The thickness uses a **scaling legend** (`25` with `¹ = 10⁻⁴ m` → `0.0025`) in Supplier A but a **direct value** (`0.0025`) in Supplier B.
-* Even numbers differ: Supplier A writes tax as `87,50` (comma decimal)[toupdate], Supplier B as `87.50`.
+* **OCR side effects**: scanned-image OCR can misread the printed decimal point as a comma, e.g. `87.50` becomes `87,50`.
 
 **The goal** is to convert every one of these variations into one predictable, standardized record that business systems can trust. For example, a single JSON output:
 
@@ -272,7 +272,7 @@ Target output example:
 In short, this stage does three things and deliberately avoids a fourth:
 
 - **Keeps every original label** exactly as written — `Invoice No.` and even cryptic footer codes like `A01`/`A02` — and attaches a plain-language `enriched` meaning to each (for example `commercial invoice identifier`, `net amount before tax`).
-- **Fixes the messy layout**: split tables are merged into one `LineItems` table, the supplier name is lifted out of the title block, footer codes are resolved through the page legend, and comma-decimals like `87,50` become `87.50`.
+- **Fixes the messy layout**: split tables are merged into one `LineItems` table, the supplier name is lifted out of the title block, and footer codes are resolved through the page legend. It also repairs **OCR artifacts** — for example a comma-decimal `87,50` produced by OCR is normalized back to `87.50` (the comma comes from OCR, not the supplier).
 - **Resolves explicit scaling only**: because Supplier A's legend defines `¹ = 10⁻⁴ m`, the raw thickness `25` becomes `0.0025`, and the applied scale is recorded in `scale_context` / column `metadata` so it can be audited later.
 - **Does *not* choose the database field.** It never claims `Invoice No.` *is* the `referenceNumber` column — that matching happens in the next (ML) stage.
 
