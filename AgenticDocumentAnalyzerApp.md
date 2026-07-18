@@ -61,7 +61,7 @@ Both documents mean exactly the same thing, but almost nothing lines up:
 * Key facts hide in a **title block** (`Acme Trading Ltd`), a **footer** (net amount and tax), and a **legend** rather than in clean key-value pairs.
 * The line items are **split across two tables** in Supplier A but written **inline** in Supplier B.
 * The thickness uses a **scaling legend** (`25` with `¹ = 10⁻⁴ m` → `0.0025`) in Supplier A but a **direct value** (`0.0025`) in Supplier B.
-* **OCR side effects**: scanned-image OCR can misread the printed decimal point as a comma, e.g. `87.50` becomes `87,50`.
+* **Scanned image side effects from supplier A**: OCR misread the printed decimal point as a comma, e.g. `87.50` becomes `87,50`.
 
 **The goal** is to convert every one of these variations into one predictable, standardized record that business systems can trust. For example, a single JSON output:
 
