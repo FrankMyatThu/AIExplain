@@ -333,7 +333,7 @@ The Semantic Matching Layer converts both the source text and each standardized 
 
 ### How Embeddings are Produced, Then Compared
 
-Semantic matching has two different parts that are easy to mix up:
+I used two main layers which we can also say as Semantics matching processes.
 
 1. **The ML inference endpoint (AWS SageMaker)** runs embedding inference to create vectors from text.
 2. **The backend worker (AWS serverless container)** performs semantic matching/search: it compares those vectors, ranks candidates,
